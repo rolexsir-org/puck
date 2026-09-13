@@ -171,14 +171,12 @@ class PuckBubbleState extends State<PuckBubble> with TickerProviderStateMixin {
 /// 12 o'clock, then closes and stays red while SOS is armed. Red is the one
 /// non-monochrome colour, and this is its other home.
 class _HoldRingPainter extends CustomPainter {
-  const _HoldRingPainter({required this.hold});
+  // The ring repaints on every tick of the hold controller -- the sweep
+  // *is* the countdown. `CustomPainter` takes the repaint listenable as a
+  // constructor argument; the old `get repaint` override no longer exists.
+  const _HoldRingPainter({required this.hold}) : super(repaint: hold);
 
   final Animation<double> hold;
-
-  /// The ring repaints on every tick of the hold controller -- the sweep
-  /// *is* the countdown.
-  @override
-  Listenable? get repaint => hold;
 
   @override
   void paint(Canvas canvas, Size size) {

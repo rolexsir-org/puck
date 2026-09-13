@@ -46,7 +46,10 @@ class _IntentBarState extends ConsumerState<IntentBar>
     duration: PuckConstants.move,
   );
 
-  late final Animation<Rect> _pill;
+  // RectTween evaluates to `Rect?` (the null case means "both ends unset").
+  // begin and end are always assigned together below, so it is non-null in
+  // practice; the type just can't know that.
+  late final Animation<Rect?> _pill;
 
   double _dragDistance = 0;
 
@@ -173,7 +176,7 @@ class _IntentBarState extends ConsumerState<IntentBar>
               AnimatedBuilder(
                 animation: _rise,
                 builder: (BuildContext context, Widget? child) {
-                  final Rect r = _pill.value;
+                  final Rect r = _pill.value ?? Rect.zero;
                   return Align(
                     alignment: Alignment.bottomLeft,
                     child: Container(

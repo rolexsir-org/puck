@@ -93,7 +93,7 @@ class LocalIntentResolver {
   /// ("what's 47 times 83"). The spoken forms are normalised to operators
   /// and handed to the same evaluator, so both paths share one grammar.
   String? _maths(String q) {
-    String normalised = q
+    final String normalised = q
         .replaceAll(RegExp(r"^(what'?s|what is|whats|calculate|compute)\s+"), '')
         .replaceAll('?', '')
         .replaceAll('×', '*')

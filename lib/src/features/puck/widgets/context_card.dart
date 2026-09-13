@@ -146,11 +146,17 @@ class _GlyphPainter extends CustomPainter {
           stroke,
         );
         canvas.drawLine(
-            const Offset(2.5, 11.5), const Offset(13.5, 11.5), stroke);
+          const Offset(2.5, 11.5),
+          const Offset(13.5, 11.5),
+          stroke,
+        );
         // Two rain ticks.
         canvas.drawLine(const Offset(5, 12.5), const Offset(4, 14.5), stroke);
         canvas.drawLine(
-            const Offset(10, 12.5), const Offset(9, 14.5), stroke);
+          const Offset(10, 12.5),
+          const Offset(9, 14.5),
+          stroke,
+        );
 
       case ContextKind.time:
         canvas.drawCircle(size.center(Offset.zero), s / 2 - 2, stroke);
