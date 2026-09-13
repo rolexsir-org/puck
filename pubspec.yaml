@@ -47,12 +47,6 @@ dependencies:
   speech_to_text: ^7.0.0
   url_launcher: ^6.3.1
 
-  # Puck Cloud: the phone agent's link to every other device.
-  # `cryptography` is pure Dart (X25519 + HKDF + AES-GCM, no FFI), and
-  # `web_socket_channel` is the thinnest socket wrapper available.
-  cryptography: ^2.7.0
-  web_socket_channel: ^3.0.1
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

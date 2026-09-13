@@ -1,4 +1,4 @@
-package dev.puck.app
+package com.rolexsir.puck
 
 import io.flutter.embedding.android.FlutterActivity
 

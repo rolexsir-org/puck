@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/animation.dart';
+import 'package:flutter/physics.dart';
 
 /// The single tuning surface for Puck.
 ///
@@ -7,7 +8,8 @@ abstract final class PuckConstants {
   // -- Geometry -------------------------------------------------------------
   static const double bubbleSize = 72;
   static const double bubbleMargin = 14;
-  static const double panelMaxWidth = 340;
+  static const double screenMargin = 16;
+  static const double cardMaxWidth = 340;
 
   // -- Gestures -------------------------------------------------------------
   /// Long-press hold time before SOS arms.
@@ -30,35 +32,44 @@ abstract final class PuckConstants {
   // -- Dismissals -----------------------------------------------------------
   static const Duration contextDismiss = Duration(seconds: 4);
   static const Duration jokeDismiss = Duration(seconds: 4);
+
   /// Longer than the toasts: an answer takes more reading than a heads-up.
   static const Duration answerDismiss = Duration(seconds: 7);
 
-  /// When a card is upgraded in place (the local line sharpened by the model,
-  /// or a joke swapped for a fresher one), guarantee at least this much
-  /// reading time remains. Otherwise a rewrite arriving at 3.6s gives the
-  /// user four-tenths of a second to read a better line than the one they
-  /// already read.
+  /// When a card is upgraded in place (the local line sharpened by the model),
+  /// guarantee at least this much reading time remains. Otherwise a rewrite
+  /// arriving at 3.6s gives the user four-tenths of a second to read a better
+  /// line than the one they already read.
   static const Duration minReadTime = Duration(milliseconds: 2200);
 
   // -- Motion ---------------------------------------------------------------
-  /// Damping ratio ~0.63 -- snappy with a whisper of overshoot.
+  /// One spring for the whole app. Damping 25.2 on stiffness 400 with unit
+  /// mass is a damping ratio of 0.63 -- snappy with a whisper of overshoot.
   static const SpringDescription snapSpring = SpringDescription(
     mass: 1,
-    stiffness: 420,
-    damping: 26,
+    stiffness: 400,
+    damping: 25.2,
   );
 
-  static const SpringDescription pressSpring = SpringDescription(
-    mass: 0.6,
-    stiffness: 700,
-    damping: 24,
-  );
+  /// The press response is faster than everything else on purpose: the
+  /// bubble must feel like a physical button, not a UI element.
+  static const Duration pressIn = Duration(milliseconds: 80);
+  static const Duration pressOut = Duration(milliseconds: 160);
 
-  static const Duration panelDuration = Duration(milliseconds: 220);
-  static const Curve panelInCurve = Curves.easeOutCubic;
-  static const Curve panelOutCurve = Curves.easeInCubic;
+  /// Appear: scale from 0.9 + fade, 200ms, spring curve.
+  static const Duration cardIn = Duration(milliseconds: 200);
+
+  /// Disappear: fade only, no scale.
+  static const Duration cardOut = Duration(milliseconds: 240);
+
+  /// The shared easing for everything that is not the spring.
+  static const Duration move = Duration(milliseconds: 240);
+  static const Curve moveCurve = Curves.easeOutCubic;
 
   // -- SOS ------------------------------------------------------------------
+  /// The countdown ring sweep, full to empty.
+  static const Duration sosCountdown = Duration(seconds: 3);
+
   /// Torch + haptics run down after this long even if the sheet is never
   /// dismissed, so a phone in a pocket does not cook itself.
   static const Duration sosRunawayTimeout = Duration(seconds: 30);
@@ -77,5 +88,10 @@ abstract final class PuckConstants {
   static const Duration locationTimeout = Duration(seconds: 8);
 
   /// Weather is re-fetched at most this often; the ranker reads the cache.
-  static const Duration weatherCacheTtl = Duration(minutes: 10);
+  static const Duration weatherCacheTtl = Duration(minutes: 30);
+
+  /// Battery and calendar snapshots are this stale at most. A tap inside the
+  /// window is answered from memory, which keeps the guaranteed
+  /// under-100ms card truly guaranteed.
+  static const Duration snapshotCacheTtl = Duration(seconds: 30);
 }

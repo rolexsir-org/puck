@@ -1,26 +1,35 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/data/services/speech_service.dart';
 import 'package:puck/src/features/puck/puck_controller.dart';
 import 'package:puck/src/providers.dart';
 
-/// The swipe-up surface: one line of input, one line of output.
+/// The swipe-up surface: a pill that rises from wherever the bubble was,
+/// grows to fit the answer, and closes on a swipe down or a tap outside.
 ///
 /// Design constraints, in priority order:
-///   1. It must be on screen and focused in under a frame. No hero animation,
-///      no scale-in -- the gesture already told the user what is happening.
-///   2. The answer must never be more than a sentence. Enforced by the prompt,
-///      not by the UI, so the UI just renders whatever comes back.
-///   3. Anything unhandled (no key, no network) resolves to a sentence too.
+///   1. It is on screen and focused in one frame. The gesture already told
+///      the user what is happening; the bar does not narrate it.
+///   2. The answer must never be more than a sentence. Enforced by the
+///      prompt, not by the UI, so the UI just renders whatever comes back.
+///   3. Anything unhandled (no key, no network) resolves to one human line.
 ///      An error dialog here would break the spell.
 class IntentBar extends ConsumerStatefulWidget {
-  const IntentBar({required this.controller, super.key});
+  const IntentBar({
+    required this.controller,
+    required this.bubbleCenter,
+    super.key,
+  });
 
   final PuckController controller;
+
+  /// Where the bubble was when the gesture happened. The pill rises from
+  /// there, not from the keyboard edge.
+  final Offset bubbleCenter;
 
   @override
   ConsumerState<IntentBar> createState() => _IntentBarState();
@@ -31,33 +40,51 @@ class _IntentBarState extends ConsumerState<IntentBar>
   final TextEditingController _field = TextEditingController();
   final FocusNode _focus = FocusNode();
   final ValueNotifier<bool> _listening = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _copied = ValueNotifier<bool>(false);
 
-  Timer? _copiedTimer;
+  late final AnimationController _rise = AnimationController(
+    vsync: this,
+    duration: PuckConstants.move,
+  );
+
+  late final Animation<Rect> _pill;
+
   double _dragDistance = 0;
-
-  static const List<String> _hints = <String>[
-    'flip a coin',
-    'wash this wool sweater',
-    'wake me at 7',
-    'should I take an umbrella',
-  ];
 
   @override
   void initState() {
     super.initState();
-    // The bar appears because of a flick; the keyboard should already be up.
+    // The bar appears because of a flick; the cursor is already in the field
+    // before the keyboard finishes its own animation.
     _focus.requestFocus();
+    _rise.forward();
+
+    final Size screen = MediaQueryData.fromView(
+      WidgetsBinding.instance.platformDispatcher.views.first,
+    ).size;
+    final Rect rest = Rect.fromLTWH(
+      PuckConstants.screenMargin,
+      0,
+      screen.width - PuckConstants.screenMargin * 2,
+      0,
+    );
+
+    // Start as a bubble-sized circle at the bubble, end as the resting pill.
+    final Rect from = Rect.fromCircle(
+      center: widget.bubbleCenter,
+      radius: PuckConstants.bubbleSize / 2,
+    );
+    _pill = RectTween(begin: from, end: rest).animate(
+      CurvedAnimation(parent: _rise, curve: PuckConstants.moveCurve),
+    );
   }
 
   @override
   void dispose() {
-    _copiedTimer?.cancel();
     unawaited(ref.read(speechServiceProvider).cancel());
+    _rise.dispose();
     _field.dispose();
     _focus.dispose();
     _listening.dispose();
-    _copied.dispose();
     super.dispose();
   }
 
@@ -102,25 +129,14 @@ class _IntentBarState extends ConsumerState<IntentBar>
     await ref.read(speechServiceProvider).stop();
   }
 
-  Future<void> _copy(String text) async {
-    if (text.isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: text));
-    await HapticFeedback.selectionClick();
-    if (!mounted) return;
-    _copied.value = true;
-    _copiedTimer?.cancel();
-    _copiedTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) _copied.value = false;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final IntentView? intent = widget.controller.intent;
-    final double keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
+    // The keyboard is handled by the Scaffold's resize, which animates in
+    // lock-step with the OS keyboard -- no jump, no double-compensation.
     return GestureDetector(
-      // Swipe down anywhere on the scrim to bail out.
+      // Swipe down anywhere on the scrim to bail out; tap outside to close.
       onVerticalDragUpdate: (DragUpdateDetails d) {
         _dragDistance += d.delta.dy;
       },
@@ -131,41 +147,51 @@ class _IntentBarState extends ConsumerState<IntentBar>
       onTap: () => widget.controller.closeIntentBar(),
       behavior: HitTestBehavior.opaque,
       child: Container(
-        color: PuckPalette.background.withValues(alpha: 0.94),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: EdgeInsets.only(bottom: keyboardInset),
+        color: PuckPalette.background.withValues(alpha: 0.96),
+        child: SafeArea(
+          top: false,
           child: Column(
             children: <Widget>[
-              const _Grabber(),
+              // The answer grows upward from the pill and scrolls if it
+              // somehow outgrows the screen -- the input never moves.
               Expanded(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 180),
-                      child: intent == null
-                          ? const SizedBox.shrink(key: ValueKey<String>('empty'))
-                          : _Answer(
-                              key: const ValueKey<String>('answer'),
-                              intent: intent,
-                              onCopy: _copy,
-                              copied: _copied,
-                            ),
+                child: intent == null
+                    ? const SizedBox.shrink()
+                    : Align(
+                        alignment: Alignment.bottomCenter,
+                        child: SingleChildScrollView(
+                          reverse: true,
+                          padding: const EdgeInsets.only(
+                            left: PuckConstants.screenMargin,
+                            right: PuckConstants.screenMargin,
+                            bottom: 12,
+                          ),
+                          child: _Answer(intent: intent),
+                        ),
+                      ),
+              ),
+              AnimatedBuilder(
+                animation: _rise,
+                builder: (BuildContext context, Widget? child) {
+                  final Rect r = _pill.value;
+                  return Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Container(
+                      margin: EdgeInsets.only(left: r.left),
+                      width: r.width,
+                      child: child,
                     ),
-                  ),
+                  );
+                },
+                child: _InputRow(
+                  controller: _field,
+                  focusNode: _focus,
+                  listening: _listening,
+                  onSubmit: _submit,
+                  onMic: _toggleMic,
                 ),
               ),
-              _InputRow(
-                controller: _field,
-                focusNode: _focus,
-                listening: _listening,
-                onSubmit: _submit,
-                onMic: _toggleMic,
-                hints: _hints,
-                showHints: intent == null,
-              ),
+              const SizedBox(height: PuckConstants.screenMargin),
             ],
           ),
         ),
@@ -174,87 +200,77 @@ class _IntentBarState extends ConsumerState<IntentBar>
   }
 }
 
-class _Grabber extends StatelessWidget {
-  const _Grabber();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 10, bottom: 4),
-        child: Center(
-          child: Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: PuckPalette.hairline,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The answer: monospace, tappable to copy, with a thinking state.
+/// The answer: streams in with a blinking cursor, sized to be read, not
+/// studied. Tappable nothing, chromeless -- it is a sentence on a card.
 class _Answer extends StatelessWidget {
-  const _Answer({
-    required this.intent,
-    required this.onCopy,
-    required this.copied,
-    super.key,
-  });
+  const _Answer({required this.intent});
 
   final IntentView intent;
-  final Future<void> Function(String) onCopy;
-  final ValueNotifier<bool> copied;
 
   @override
   Widget build(BuildContext context) {
     final String answer = intent.answer.trim();
     final bool thinking = intent.streaming && answer.isEmpty;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Text(
-          '“${intent.query}”'.toUpperCase(),
-          style: PuckType.label.copyWith(fontSize: 9),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 14),
-        if (thinking)
-          const _ThinkingDots()
-        else
-          GestureDetector(
-            onTap: () => unawaited(onCopy(answer)),
-            behavior: HitTestBehavior.opaque,
-            child: Text(
-              answer.isEmpty ? '…' : answer,
-              style: PuckType.mono.copyWith(
-                fontSize: 20,
-                height: 1.42,
-                color: intent.failed ? PuckPalette.textMid : PuckPalette.textHigh,
+    return PuckCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (thinking)
+            const _ThinkingDots()
+          else
+            Text.rich(
+              TextSpan(
+                text: answer,
+                style: PuckType.primary.copyWith(fontWeight: FontWeight.w400),
+                children: intent.streaming
+                    ? const <InlineSpan>[
+                        WidgetSpan(
+                          child: _Cursor(),
+                          alignment: PlaceholderAlignment.middle,
+                        ),
+                      ]
+                    : null,
               ),
             ),
-          ),
-        const SizedBox(height: 14),
-        ValueListenableBuilder<bool>(
-          valueListenable: copied,
-          builder: (BuildContext context, bool didCopy, Widget? child) {
-            return Text(
-              didCopy
-                  ? 'COPIED'
-                  : (thinking ? 'THINKING' : 'TAP TO COPY'),
-              style: PuckType.label,
-            );
-          },
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A caret that blinks while tokens are still arriving, then stops. The
+/// blink says "live"; the silence afterwards says "done".
+class _Cursor extends StatefulWidget {
+  const _Cursor();
+
+  @override
+  State<_Cursor> createState() => _CursorState();
+}
+
+class _CursorState extends State<_Cursor> with SingleTickerProviderStateMixin {
+  late final AnimationController _blink = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 500),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _blink.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 1, end: 0).animate(_blink),
+      child: Container(
+        width: 2,
+        height: 18,
+        margin: const EdgeInsets.only(left: 2),
+        color: PuckPalette.textSec,
+      ),
     );
   }
 }
@@ -297,7 +313,7 @@ class _ThinkingDotsState extends State<_ThinkingDots>
               width: 6,
               height: 6,
               decoration: BoxDecoration(
-                color: PuckPalette.textHigh.withValues(alpha: opacity),
+                color: PuckPalette.textPrim.withValues(alpha: opacity),
                 shape: BoxShape.circle,
               ),
             );
@@ -315,8 +331,6 @@ class _InputRow extends StatelessWidget {
     required this.listening,
     required this.onSubmit,
     required this.onMic,
-    required this.hints,
-    required this.showHints,
   });
 
   final TextEditingController controller;
@@ -324,77 +338,69 @@ class _InputRow extends StatelessWidget {
   final ValueNotifier<bool> listening;
   final Future<void> Function() onSubmit;
   final Future<void> Function() onMic;
-  final List<String> hints;
-  final bool showHints;
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          if (showHints) ...<Widget>[
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 12),
-              child: Text(
-                hints.take(2).join('   ·   '),
-                style: PuckType.label.copyWith(fontSize: 9),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (BuildContext context, TextEditingValue value, Widget? _) {
+        final bool hasText = value.text.trim().isNotEmpty;
+        return Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: PuckPalette.card,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: const <BoxShadow>[
+              BoxShadow(
+                color: Color(0x66000000),
+                blurRadius: 16,
+                offset: Offset(0, 4),
               ),
-            ),
-          ],
-          Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: PuckPalette.surface,
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: PuckPalette.hairline),
-            ),
-            child: Row(
-              children: <Widget>[
-                const SizedBox(width: 18),
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    style: PuckType.input,
-                    cursorWidth: 1.5,
-                    textInputAction: TextInputAction.go,
-                    onSubmitted: (String _) => unawaited(onSubmit()),
-                    decoration: const InputDecoration(
-                      hintText: 'Ask anything…',
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
+            ],
+          ),
+          child: Row(
+            children: <Widget>[
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  style: PuckType.primary.copyWith(
+                    fontWeight: FontWeight.w400,
+                  ),
+                  cursorWidth: 2,
+                  textInputAction: TextInputAction.go,
+                  onSubmitted: (String _) => unawaited(onSubmit()),
+                  decoration: const InputDecoration(
+                    hintText: 'Ask anything.',
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                ValueListenableBuilder<bool>(
-                  valueListenable: listening,
-                  builder: (BuildContext context, bool active, Widget? _) {
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: listening,
+                builder: (BuildContext context, bool active, Widget? _) {
+                  if (hasText) {
                     return _RoundButton(
-                      icon: active ? Icons.stop_rounded : Icons.mic_none_rounded,
-                      active: active,
-                      onTap: () => unawaited(onMic()),
+                      icon: Icons.arrow_upward_rounded,
+                      filled: true,
+                      onTap: () => unawaited(onSubmit()),
                     );
-                  },
-                ),
-                const SizedBox(width: 6),
-                _RoundButton(
-                  icon: Icons.arrow_upward_rounded,
-                  filled: true,
-                  onTap: () => unawaited(onSubmit()),
-                ),
-                const SizedBox(width: 6),
-              ],
-            ),
+                  }
+                  return _RoundButton(
+                    icon: active ? Icons.stop_rounded : Icons.mic_none_rounded,
+                    active: active,
+                    onTap: () => unawaited(onMic()),
+                  );
+                },
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -417,21 +423,24 @@ class _RoundButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: 38,
-        height: 38,
+        duration: PuckConstants.pressOut,
+        curve: Curves.easeOutCubic,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
           color: filled
-              ? PuckPalette.textHigh
-              : (active ? PuckPalette.danger : Colors.transparent),
+              ? PuckPalette.textPrim
+              : (active
+                  ? PuckPalette.emergency
+                  : Colors.transparent),
           shape: BoxShape.circle,
         ),
         child: Icon(
           icon,
-          size: 17,
+          size: 20,
           color: filled
               ? PuckPalette.background
-              : (active ? Colors.white : PuckPalette.textMid),
+              : (active ? PuckPalette.textPrim : PuckPalette.textSec),
         ),
       ),
     );

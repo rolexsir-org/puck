@@ -8,1164 +8,738 @@
   /* ---------------------------------------------------------------------
      Puck preview. A faithful, self-contained port of the Flutter surface:
      same gesture thresholds, same 4s dismissals, same edge-snap physics
-     (approximated with a cubic-bezier), same copy.
+     (approximated), same copy, same palette.
 
      No network, no fonts, no libraries. Everything below is inline so it
      renders inside a sandboxed iframe.
      --------------------------------------------------------------------- */
 
   :root {
-    --background: #08080a;
-    --surface: #141418;
-    --surface-hi: #1c1c21;
-    --hairline: #27272e;
-    --text-high: #f4f4f6;
-    --text-mid: #9a9aa3;
-    --text-low: #5c5c66;
-    --danger: #e5484d;
+    --background: #000000;
+    --card: #111111;
+    --divider: #1F1F1F;
+    --muted-bg: #2A2A2A;
+    --text-muted: #666666;
+    --text-sec: #999999;
+    --text-prim: #FFFFFF;
+    --emergency: #FF3B30;
+    --success: #30D158;
     --bubble: 72px;
     --margin: 14px;
+    --screen-margin: 16px;
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
     margin: 0; padding: 0; height: 100%;
-    background: #0b0b0d;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    color: var(--text-high);
+    background: #0a0a0a;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, system-ui, sans-serif;
+    color: var(--text-prim);
     overflow: hidden;
+    user-select: none; -webkit-user-select: none;
   }
 
-  .stage {
-    height: 100%;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 18px;
-  }
+  #stage-wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
 
-  .phone {
-    position: relative;
-    width: 390px; height: 844px;
-    border-radius: 46px;
-    background: #000;
-    border: 1px solid #1e1e24;
-    box-shadow: 0 40px 90px rgba(0,0,0,.75), 0 0 0 10px #101014;
-    overflow: hidden;
-    flex: none;
-  }
-
-  .scaler { transform-origin: center center; }
-
-  /* -- status bar ------------------------------------------------------- */
-  .statusbar {
-    height: 44px; flex: none;
-    display: flex; align-items: flex-end; justify-content: space-between;
-    padding: 0 26px 6px;
-    font-size: 12.5px; font-weight: 600; letter-spacing: .2px;
-    color: var(--text-high);
+  /* The phone: 390x844, scaled to fit the viewport. */
+  #stage {
+    position: relative; width: 390px; height: 844px;
     background: var(--background);
-    position: relative; z-index: 5;
-  }
-  .statusbar .right { display: flex; align-items: center; gap: 6px; }
-  .batt {
-    width: 22px; height: 11px; border: 1px solid rgba(244,244,246,.5);
-    border-radius: 3px; padding: 1.5px; position: relative;
-  }
-  .batt::after {
-    content: ""; position: absolute; right: -3px; top: 3.5px;
-    width: 2px; height: 4px; background: rgba(244,244,246,.5); border-radius: 0 1px 1px 0;
-  }
-  .batt i { display: block; height: 100%; width: 62%; background: var(--text-high); border-radius: 1px; }
-
-  /* -- canvas ----------------------------------------------------------- */
-  .canvas {
-    position: relative;
-    flex: 1;
-    background:
-      radial-gradient(120% 80% at 50% -20%, #16161b 0%, var(--background) 62%);
+    border-radius: 44px;
+    border: 1px solid #1f1f1f;
     overflow: hidden;
-    user-select: none;
+    transform: scale(var(--scale, 1));
+    transform-origin: center center;
     touch-action: none;
   }
 
-  /* -- bubble ----------------------------------------------------------- */
-  .bubble {
-    position: absolute; left: 0; top: 0;
+  /* -- The bubble --------------------------------------------------------- */
+  #bubble {
+    position: absolute;
     width: var(--bubble); height: var(--bubble);
-    z-index: 30;
-    cursor: grab;
-    will-change: transform;
-  }
-  .bubble.dragging { cursor: grabbing; }
-  .bubble .face {
-    width: 100%; height: 100%;
     border-radius: 50%;
-    background: radial-gradient(circle at 32% 28%, #202027 0%, var(--surface) 68%);
-    border: 1px solid var(--hairline);
-    box-shadow: 0 10px 30px rgba(0,0,0,.55);
-    display: flex; align-items: center; justify-content: center;
-    transform: scale(1);
-    transition: transform 110ms ease-out;
-    position: relative;
+    background: var(--text-prim);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.30);
+    z-index: 50;
+    display: grid; place-items: center;
   }
-  .bubble .dot {
-    width: 12px; height: 12px; border-radius: 50%;
-    background: var(--text-high);
-    transition: background 160ms linear, transform 110ms ease-out;
+  #bubble.dragging { box-shadow: 0 2px 16px rgba(0,0,0,0.45); }
+  #bubble svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #appear {
+    position: absolute; inset: 0;
+    animation: appear 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
-  .bubble.armed .dot { background: var(--danger); }
-  .bubble .ring { position: absolute; inset: 0; transform: rotate(-90deg); pointer-events: none; }
-  .ring circle { fill: none; stroke-linecap: round; }
-  .ring .track { stroke: transparent; }
-  .ring .prog {
-    stroke: var(--text-high); stroke-width: 2;
-    stroke-dasharray: 197.92; stroke-dashoffset: 197.92;
-  }
-  .bubble.armed .ring .prog { stroke: var(--danger); }
+  @keyframes appear { from { transform: scale(0.8); } to { transform: scale(1); } }
 
-  /* -- cards ------------------------------------------------------------ */
+  /* -- Cards --------------------------------------------------------------- */
   .card {
-    position: absolute; z-index: 20;
-    max-width: 322px; min-width: 150px;
-    background: rgba(20,20,24,.94);
-    border: 1px solid var(--hairline);
-    border-radius: 18px;
-    padding: 14px 16px;
-    box-shadow: 0 10px 28px rgba(0,0,0,.65);
-    opacity: 0; transform: translateY(6px) scale(.96);
-    transition: opacity 220ms cubic-bezier(.33,1,.68,1), transform 220ms cubic-bezier(.33,1,.68,1);
-    pointer-events: none;
+    position: absolute;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 16px 20px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.40);
+    z-index: 30;
+    max-width: calc(100% - 2 * var(--screen-margin));
+    font-size: 17px; font-weight: 500; line-height: 1.3;
+    color: var(--text-prim);
+    animation: cardIn 200ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
-  .card.show { opacity: 1; transform: translateY(0) scale(1); }
   .card .label {
-    font-size: 10px; font-weight: 600; letter-spacing: 1.4px;
-    text-transform: uppercase; color: var(--text-low);
+    font-size: 13px; font-weight: 400; color: var(--text-muted);
+    line-height: 1.3; margin-bottom: 6px; letter-spacing: 0;
   }
-  .card .headline {
-    margin-top: 6px;
-    font-size: 19px; line-height: 1.32; letter-spacing: -.25px; font-weight: 500;
-    color: var(--text-high);
+  .card .detail {
+    font-size: 15px; font-weight: 400; color: var(--text-sec);
+    line-height: 1.3; margin-top: 5px;
   }
-  .card .detail { margin-top: 5px; font-size: 13.5px; color: var(--text-mid); }
-  .card .mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 15px; line-height: 1.5; letter-spacing: -.15px;
-  }
-  .card .glyph { float: left; margin: 1px 12px 0 0; }
+  .card.joke { font-weight: 400; }
+  .card.leaving { animation: cardOut 240ms ease both; }
+  @keyframes cardIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes cardOut { from { opacity: 1; } to { opacity: 0; } }
 
-  /* -- footer ----------------------------------------------------------- */
-  .footer {
-    position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
-    padding: 0 24px 14px;
-    display: flex; flex-direction: column; align-items: center; gap: 16px;
-    pointer-events: none;
-  }
-  .legend {
-    display: flex; flex-direction: column; gap: 7px; align-items: flex-start;
-    transition: opacity 300ms ease;
-  }
-  .legend.hide { opacity: 0; }
-  .legend .row { display: flex; gap: 12px; }
-  .legend .k {
-    width: 74px; flex: none;
-    font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low);
-  }
-  .legend .v { font-size: 12.5px; color: var(--text-mid); }
-  .settings-link {
-    pointer-events: auto; cursor: pointer;
-    font-size: 10px; font-weight: 600; letter-spacing: 1.4px;
-    color: rgba(92,92,102,.65); padding: 6px 10px;
-  }
-  .settings-link:hover { color: var(--text-mid); }
-
-  /* -- intent bar ------------------------------------------------------- */
-  .intent {
+  /* -- Intent bar ----------------------------------------------------------- */
+  #intent-scrim {
     position: absolute; inset: 0; z-index: 60;
-    background: rgba(8,8,10,.94);
-    display: flex; flex-direction: column;
-    opacity: 0; pointer-events: none;
-    transition: opacity 180ms ease-out;
+    background: rgba(0,0,0,0.96);
+    display: none;
   }
-  .intent.show { opacity: 1; pointer-events: auto; }
-  .grabber { width: 36px; height: 4px; border-radius: 2px; background: var(--hairline); margin: 14px auto 4px; flex: none; }
-  .intent-body {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    padding: 24px; overflow: auto;
+  #intent-scrim.open { display: block; }
+  #intent-answer {
+    position: absolute; left: var(--screen-margin); right: var(--screen-margin);
+    max-height: 55%;
+    overflow-y: auto;
+    display: none;
   }
-  .answer { width: 100%; max-width: 330px; }
-  .answer .q {
-    font-size: 9px; font-weight: 600; letter-spacing: 1.4px;
-    color: var(--text-low); text-transform: uppercase;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  #intent-answer .card { position: relative; font-weight: 400; }
+  .cursor {
+    display: inline-block; width: 2px; height: 18px;
+    background: var(--text-sec); margin-left: 2px; vertical-align: -3px;
+    animation: blink 500ms step-end infinite alternate;
   }
-  .answer .a {
-    margin-top: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 20px; line-height: 1.42; letter-spacing: -.15px;
-    min-height: 28px;
+  @keyframes blink { 0% { opacity: 1; } 100% { opacity: 0; } }
+  .dots { display: inline-flex; gap: 7px; padding: 6px 0; }
+  .dots i {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-prim); opacity: 0.25;
+    animation: dot 900ms infinite;
   }
-  .answer .meta { margin-top: 14px; font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low); cursor: pointer; }
-  .dots { display: flex; gap: 7px; margin-top: 14px; }
-  .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-high); opacity: .22; animation: pulse 900ms infinite; }
   .dots i:nth-child(2) { animation-delay: 150ms; }
   .dots i:nth-child(3) { animation-delay: 300ms; }
-  @keyframes pulse { 0%,100% { opacity: .22; } 40% { opacity: 1; } }
+  @keyframes dot { 0%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
 
-  .inputrow { flex: none; padding: 8px 16px 16px; }
-  .inputrow .hints {
-    margin: 0 4px 12px;
-    font-size: 9px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  #intentbar {
+    position: absolute;
+    bottom: var(--screen-margin);
+    height: 56px;
+    background: var(--card);
+    border-radius: 28px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.40);
+    display: flex; align-items: center;
+    padding: 0 8px 0 20px;
+    transform-origin: center bottom;
   }
-  .inputbar {
-    height: 52px; border-radius: 26px;
-    background: var(--surface); border: 1px solid var(--hairline);
-    display: flex; align-items: center; padding: 0 6px 0 18px; gap: 6px;
+  #intentbar input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text-prim);
+    font-size: 17px; font-weight: 400; font-family: inherit;
+    line-height: 1.3;
   }
-  .inputbar input {
-    flex: 1; background: none; border: none; outline: none;
-    color: var(--text-high); font-size: 17px; font-family: inherit;
+  #intentbar input::placeholder { color: var(--text-muted); }
+  .round {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: transparent; color: var(--text-sec);
+    flex: none;
   }
-  .inputbar input::placeholder { color: var(--text-low); }
-  .rbtn {
-    width: 38px; height: 38px; border-radius: 50%; flex: none;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; background: transparent;
-    transition: background 160ms ease, color 160ms ease;
-    color: var(--text-mid);
-  }
-  .rbtn.filled { background: var(--text-high); color: var(--background); }
-  .rbtn.active { background: var(--danger); color: #fff; }
-  .rbtn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .rbtn.filled svg { fill: none; }
+  .round.send { background: var(--text-prim); color: var(--background); }
+  .round svg { width: 20px; height: 20px; }
 
-  /* -- sos -------------------------------------------------------------- */
-  .sos {
+  /* -- SOS sheet ------------------------------------------------------------ */
+  #sos {
     position: absolute; inset: 0; z-index: 70;
-    background: rgba(8,8,10,.72);
-    opacity: 0; pointer-events: none;
-    transition: opacity 200ms ease;
+    background: var(--background);
+    display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    transition: transform 240ms cubic-bezier(0.215, 0.61, 0.355, 1);
   }
-  .sos.show { opacity: 1; pointer-events: auto; }
-  .sheet {
-    position: absolute; left: 12px; right: 12px; bottom: 12px;
-    background: var(--surface);
-    border: 1px solid rgba(229,72,77,.55);
-    border-radius: 22px;
-    padding: 18px 20px 20px;
-    box-shadow: 0 -8px 40px rgba(0,0,0,.6);
-    transform: translateY(110%);
-    transition: transform 260ms cubic-bezier(.33,1,.68,1);
+  #sos.open { display: flex; }
+  #sos.sliding { transform: translateY(100%); }
+  #ringwrap { position: relative; width: 120px; height: 120px; }
+  #ringwrap svg { position: absolute; inset: 0; }
+  #ringnum {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 96px; font-weight: 300; letter-spacing: -0.2px; line-height: 1.15;
+    color: var(--text-prim);
   }
-  .sos.show .sheet { transform: translateY(0); }
-  .sheet .top { display: flex; align-items: center; gap: 9px; }
-  .sheet .dot7 { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
-  .sheet .soslabel { font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--danger); }
-  .sheet .torchstate { margin-left: auto; font-size: 9px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low); }
-  .sheet h2 { margin: 16px 0 8px; font-size: 22px; font-weight: 500; letter-spacing: -.3px; }
-  .sheet .status { font-size: 13.5px; color: var(--text-mid); }
-  .sheet .preview {
-    margin-top: 18px; padding: 14px;
-    background: var(--background); border: 1px solid var(--hairline); border-radius: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12.5px; line-height: 1.5; word-break: break-word;
+  #ringicon { position: absolute; inset: 0; display: none; place-items: center; font-size: 44px; }
+  #soslabel {
+    margin-top: 24px;
+    font-size: 17px; font-weight: 400; line-height: 1.3;
+    color: var(--text-muted);
   }
-  .sheet .to {
-    margin-top: 14px;
-    font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-mid);
+  #soscontact {
+    margin-top: 8px;
+    font-size: 15px; font-weight: 400; color: var(--emergency);
+    display: none;
   }
-  .sheet .to.warn { color: var(--danger); }
-  .btn {
-    height: 52px; border-radius: 14px; margin-top: 18px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 600; letter-spacing: 1.4px;
-    cursor: pointer; user-select: none;
+  #sosbutton {
+    position: absolute; left: 24px; right: 24px; bottom: 32px;
+    height: 56px; border-radius: 16px;
+    background: var(--emergency);
+    display: grid; place-items: center;
+    font-size: 17px; font-weight: 600; color: var(--text-prim);
+    transition: background 240ms ease;
   }
-  .btn.primary { background: var(--text-high); color: var(--background); }
-  .btn.ghost { margin-top: 10px; border: 1px solid var(--hairline); color: var(--text-mid); }
-  .btn:active { opacity: .85; }
+  #sosbutton.stop { background: var(--muted-bg); }
 
-  /* -- settings --------------------------------------------------------- */
-  .settings {
+  /* -- Settings --------------------------------------------------------------- */
+  #settings {
     position: absolute; inset: 0; z-index: 80;
     background: var(--background);
-    transform: translateX(100%);
-    transition: transform 260ms cubic-bezier(.33,1,.68,1);
-    overflow-y: auto;
-    padding: 8px 0 40px;
+    display: none; flex-direction: column;
+    padding: 12px 20px 0;
+    font-size: 17px;
   }
-  .settings.show { transform: translateX(0); }
-  .settings .head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px; }
-  .settings .head .back { cursor: pointer; color: var(--text-mid); padding: 8px; font-size: 18px; line-height: 1; }
-  .settings .head .t { font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low); }
-  .sec { padding: 22px 20px 0; }
-  .sec .st { font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low); margin-bottom: 14px; }
-  .field {
-    background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px;
-    padding: 12px 16px; margin-bottom: 10px;
-    display: flex; align-items: center;
+  #settings.open { display: flex; }
+  .s-header { height: 44px; display: flex; align-items: center; gap: 8px; flex: none; }
+  .s-back { display: flex; align-items: center; color: var(--text-sec); font-size: 17px; cursor: pointer; }
+  .s-back svg { width: 24px; height: 24px; margin-right: 2px; }
+  .s-title { font-weight: 500; }
+  .s-scroll { overflow-y: auto; flex: 1; padding-bottom: 12px; }
+  .s-label { font-weight: 500; margin: 32px 0 10px; }
+  .s-input {
+    height: 56px; background: var(--card); border-radius: 16px;
+    display: flex; align-items: center; padding: 0 8px 0 16px;
   }
-  .field input {
-    flex: 1; background: none; border: none; outline: none;
-    color: var(--text-high); font-size: 15px; font-family: inherit; width: 100%;
+  .s-input input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text-prim); font-size: 17px; font-weight: 400; font-family: inherit;
   }
-  .field input::placeholder { color: var(--text-low); }
-  .field .mini { font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low); cursor: pointer; }
-  .switchrow { display: flex; align-items: center; padding: 6px 0; font-size: 15px; }
-  .switchrow .sw {
-    margin-left: auto; width: 46px; height: 28px; border-radius: 14px;
-    background: var(--surface-hi); position: relative; cursor: pointer;
-    transition: background 160ms ease;
-  }
-  .switchrow .sw.on { background: var(--text-high); }
-  .switchrow .sw i {
-    position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
-    border-radius: 50%; background: var(--text-mid);
-    transition: transform 160ms cubic-bezier(.33,1,.68,1), background 160ms;
-  }
-  .switchrow .sw.on i { transform: translateX(18px); background: var(--background); }
-  .note { margin-top: 10px; font-size: 12px; line-height: 1.5; color: var(--text-mid); }
-  .chips { display: flex; gap: 10px; }
-  .chip {
-    padding: 9px 14px; border-radius: 12px; border: 1px solid var(--hairline);
-    font-size: 13.5px; color: var(--text-high); cursor: pointer;
-    display: flex; align-items: center; gap: 7px;
-  }
-  .chip.on { background: var(--text-high); color: var(--background); border-color: var(--text-high); }
-  .chip small { font-size: 8px; font-weight: 600; letter-spacing: 1.4px; opacity: .6; }
-  .ver { padding: 8px 20px 0; font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: var(--text-low); }
+  .s-input input::placeholder { color: var(--text-muted); }
+  .s-paste { color: var(--text-sec); font-size: 15px; padding: 8px 12px; }
+  .s-help { font-size: 13px; color: var(--text-muted); line-height: 1.3; margin-top: 8px; }
+  .s-divider { height: 1px; background: var(--divider); margin: 24px 0; }
+  .s-count { font-size: 15px; color: var(--text-sec); line-height: 1.3; }
+  .s-version { font-size: 13px; color: var(--text-muted); text-align: center; padding: 24px 0 32px; flex: none; }
 
-  /* -- torch flash ------------------------------------------------------ */
-  /* z-index 65: the torch flash washes the whole canvas, but the SOS sheet
-     (z 70) stays readable on top of it -- which is what actually happens when
-     you shine a light at a phone you are looking at. */
-  .flash {
-    position: absolute; inset: 0; z-index: 65; pointer-events: none;
-    background: #fff; opacity: 0;
+  /* -- Settings link ------------------------------------------------------------ */
+  #settingslink {
+    position: absolute; left: 0; right: 0; bottom: 6px;
+    text-align: center;
+    font-size: 13px; color: var(--text-muted);
+    padding: 12px 24px; z-index: 40;
   }
-  .flash.on { opacity: .9; }
 
-  /* -- caption ---------------------------------------------------------- */
-  .caption {
-    max-width: 520px; text-align: center;
-    font-size: 12.5px; line-height: 1.55; color: #6d6d78;
-  }
-  .caption b { color: #a8a8b3; font-weight: 600; }
-  .caption .keys { margin-top: 8px; font-size: 11.5px; color: #55555e; }
-  kbd {
-    font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
-    background: #17171c; border: 1px solid #26262e; border-radius: 4px;
-    padding: 2px 5px; color: #9a9aa3;
+  /* Torch flash for the fired SOS */
+  #torch {
+    position: absolute; inset: 0; z-index: 65;
+    background: #fff; opacity: 0; pointer-events: none;
   }
 </style>
 </head>
 <body>
+<div id="stage-wrap"><div id="stage">
+  <div id="torch"></div>
 
-<div class="stage">
-  <div class="scaler" id="scaler">
-    <div class="phone" id="phone">
-      <div class="statusbar">
-        <span id="clock">9:41</span>
-        <span class="right">
-          <span id="sb-temp">14&deg;</span>
-          <span class="batt"><i></i></span>
-        </span>
-      </div>
+  <div id="cardhost"></div>
 
-      <div class="canvas" id="canvas">
-        <div class="bubble" id="bubble">
-          <div class="face">
-            <svg class="ring" viewBox="0 0 72 72">
-              <circle class="track" cx="36" cy="36" r="31.5"></circle>
-              <circle class="prog" id="ring" cx="36" cy="36" r="31.5"></circle>
-            </svg>
-            <span class="dot"></span>
-          </div>
-        </div>
-
-        <div class="card" id="card"></div>
-
-        <div class="intent" id="intent">
-          <div class="grabber"></div>
-          <div class="intent-body">
-            <div class="answer" id="answer" style="display:none">
-              <div class="q" id="a-q"></div>
-              <div class="a" id="a-text"></div>
-              <div class="meta" id="a-meta">TAP TO COPY</div>
-              <div class="dots" id="a-dots" style="display:none"><i></i><i></i><i></i></div>
-            </div>
-          </div>
-          <div class="inputrow">
-            <div class="hints" id="hints">flip a coin   ·   wash this wool sweater</div>
-            <div class="inputbar">
-              <input id="q" placeholder="Ask anything…" autocomplete="off" spellcheck="false">
-              <div class="rbtn" id="mic" title="Speak">
-                <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>
-              </div>
-              <div class="rbtn filled" id="send" title="Send">
-                <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="sos" id="sos">
-          <div class="sheet">
-            <div class="top">
-              <span class="dot7"></span>
-              <span class="soslabel">SOS ARMED</span>
-              <span class="torchstate" id="torch-state">TORCH ON</span>
-            </div>
-            <h2 id="sos-title">Locating…</h2>
-            <div class="status" id="sos-status">Getting your location…</div>
-            <div class="preview" id="sos-body">Building message…</div>
-            <div class="to" id="sos-to">NO EMERGENCY CONTACT SET</div>
-            <div class="btn primary" id="sos-send">ADD AN EMERGENCY CONTACT</div>
-            <div class="btn ghost" id="sos-cancel">I'M SAFE — CANCEL</div>
-          </div>
-        </div>
-
-        <div class="footer">
-          <div class="legend" id="legend">
-            <div class="row"><span class="k">TAP</span><span class="v">one useful thing</span></div>
-            <div class="row"><span class="k">DOUBLE TAP</span><span class="v">a small joke</span></div>
-            <div class="row"><span class="k">HOLD 3s</span><span class="v">SOS</span></div>
-            <div class="row"><span class="k">SWIPE UP</span><span class="v">ask anything</span></div>
-          </div>
-          <div class="settings-link" id="open-settings">SETTINGS</div>
-        </div>
-
-        <div class="flash" id="flash"></div>
-
-        <div class="settings" id="settings">
-          <div class="head">
-            <span class="back" id="close-settings">&#8249;</span>
-            <span class="t">SETTINGS</span>
-          </div>
-
-          <div class="sec">
-            <div class="st">EMERGENCY</div>
-            <div class="field"><input id="s-name" placeholder="Contact name" value="Ammi"></div>
-            <div class="field"><input id="s-phone" placeholder="Contact number" value="+91 99064 11220"></div>
-            <div class="note">Hold the bubble for three seconds to arm SOS. Puck opens your SMS app with your location pre-filled — it never sends anything itself, so an accidental hold stays recoverable.</div>
-          </div>
-
-          <div class="sec">
-            <div class="st">INTELLIGENCE</div>
-            <div class="field">
-              <input id="s-key" placeholder="Groq API key" value="">
-              <span class="mini" id="s-key-toggle">SHOW</span>
-            </div>
-            <div class="chips">
-              <div class="chip on" data-model="gpt-oss-20b">gpt-oss-20b <small>FASTEST</small></div>
-              <div class="chip" data-model="gpt-oss-120b">gpt-oss-120b <small>SMARTER</small></div>
-            </div>
-            <div class="note">Stored in the iOS Keychain / Android Keystore, never in backups. Without a key, Puck still answers coin flips, dice, sums, and the time.</div>
-          </div>
-
-          <div class="sec">
-            <div class="st">BEHAVIOUR</div>
-            <div class="switchrow">Haptics<div class="sw on" data-k="haptics"><i></i></div></div>
-            <div class="switchrow">Flashlight on SOS<div class="sw on" data-k="torch"><i></i></div></div>
-            <div class="switchrow">SOS strobe (Morse)<div class="sw on" data-k="strobe"><i></i></div></div>
-            <div class="note">Puck asks for permissions only when a gesture needs them: calendar on first tap, location on first SOS or weather check, microphone when you press the mic.</div>
-          </div>
-
-          <div class="ver">PUCK · v1.0.0</div>
-        </div>
-      </div>
+  <div id="intent-scrim">
+    <div id="intent-answer"></div>
+    <div id="intentbar">
+      <input id="q" placeholder="Ask anything." autocomplete="off" spellcheck="false">
+      <div class="round" id="micbtn"></div>
     </div>
   </div>
 
-  <div class="caption">
-    <b>Puck — interactive preview.</b> Drag the bubble, then tap it, double-tap it,
-    hold it for three seconds, or flick it upward.
-    <div class="keys">
-      Everything below the status bar is the real surface: same 3s hold, same 260ms
-      double-tap window, same 56px swipe threshold, same 4s dismissals.
-      The mic and the torch are simulated in-browser.
+  <div id="sos">
+    <div id="ringwrap">
+      <svg viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="58" fill="none" stroke="var(--muted-bg)" stroke-width="4"/>
+        <circle id="ring" cx="60" cy="60" r="58" fill="none" stroke="var(--emergency)" stroke-width="4"
+                stroke-linecap="round" transform="rotate(-90 60 60)"/>
+      </svg>
+      <div id="ringnum">3</div>
+      <div id="ringicon"></div>
     </div>
+    <div id="soslabel">SOS in 3</div>
+    <div id="soscontact">No emergency contact set</div>
+    <div id="sosbutton">CANCEL</div>
   </div>
-</div>
+
+  <div id="settings">
+    <div class="s-header">
+      <div class="s-back" id="backbtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        Back
+      </div>
+      <div class="s-title">Settings</div>
+    </div>
+    <div class="s-scroll">
+      <div class="s-label">API key</div>
+      <div class="s-input">
+        <input id="s-key" placeholder="Paste" autocomplete="off" spellcheck="false">
+        <div class="s-paste" id="pastebtn">Paste</div>
+      </div>
+      <div class="s-help">Free at console.groq.com/keys</div>
+
+      <div class="s-label">Emergency contact</div>
+      <div class="s-input"><input id="s-contact" placeholder="Number" autocomplete="off" spellcheck="false"></div>
+      <div class="s-help">The SOS message opens in Messages, ready to send. Nothing is ever sent on its own.</div>
+
+      <div class="s-divider"></div>
+      <div class="s-count" id="cancelcount">Puck cancels itself when you release early. It has done that 0 times.</div>
+      <div class="s-divider"></div>
+    </div>
+    <div class="s-version">Version 1.0 · Made for hackathon</div>
+  </div>
+
+  <div id="settingslink">Settings</div>
+  <div id="bubble"><div id="appear">
+    <svg viewBox="0 0 72 72">
+      <circle id="holdring" cx="36" cy="36" r="30" fill="none" stroke="var(--emergency)"
+              stroke-width="4" stroke-linecap="round" transform="rotate(-90 36 36)"
+              stroke-dasharray="188.5" stroke-dashoffset="188.5"/>
+    </svg>
+  </div></div>
+</div></div>
 
 <script>
-(function () {
-  "use strict";
+  // -- Palette-mirroring constants ------------------------------------------
+  var MARGIN = 14, BUBBLE = 72;
+  var DOUBLE_TAP_MS = 260, HOLD_MS = 3000, SWIPE_UP_PX = 56, SLOP = 18;
+  var SOS_SECONDS = 3, CARD_MS = 4000, ANSWER_MS = 7000;
 
-  // =====================================================================
-  // Geometry -- mirrors PuckConstants / PuckController
-  // =====================================================================
-  var BUBBLE = 72, MARGIN = 14;
-  var LONG_PRESS = 3000, DOUBLE_TAP = 260, SWIPE_UP = 56, TOUCH_SLOP = 18, AXIS_RATIO = 1.2;
-  var DISMISS_TOAST = 4000, DISMISS_ANSWER = 7000, SOS_RUNAWAY = 30000;
+  var stage = document.getElementById('stage');
+  var bubble = document.getElementById('bubble');
+  var holdring = document.getElementById('holdring');
+  var cardhost = document.getElementById('cardhost');
+  var scrim = document.getElementById('intent-scrim');
+  var intentbar = document.getElementById('intentbar');
+  var answerBox = document.getElementById('intent-answer');
+  var q = document.getElementById('q');
+  var micbtn = document.getElementById('micbtn');
+  var sos = document.getElementById('sos');
+  var ring = document.getElementById('ring');
+  var ringnum = document.getElementById('ringnum');
+  var ringicon = document.getElementById('ringicon');
+  var soslabel = document.getElementById('soslabel');
+  var soscontact = document.getElementById('soscontact');
+  var sosbutton = document.getElementById('sosbutton');
+  var settingsEl = document.getElementById('settings');
+  var cancelcount = document.getElementById('cancelcount');
+  var torch = document.getElementById('torch');
 
-  var canvas   = document.getElementById("canvas");
-  var bubbleEl = document.getElementById("bubble");
-  var cardEl   = document.getElementById("card");
-  var intentEl = document.getElementById("intent");
-  var sosEl    = document.getElementById("sos");
-  var flashEl  = document.getElementById("flash");
-  var legendEl = document.getElementById("legend");
-  var ringEl   = document.getElementById("ring");
-
-  var W = canvas.clientWidth, H = canvas.clientHeight;
-  function maxX() { return Math.max(0, W - BUBBLE - MARGIN * 2); }
-  function maxY() { return Math.max(0, H - BUBBLE - MARGIN * 2); }
-  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
-
-  // The frame is CSS-scaled to fit the viewport; pointer coords arrive in
-  // screen px, gesture thresholds are defined in canvas px.
-  var scale = 1;
-  function toCanvas(px) { return px / scale; }
-
-  var pos = { x: maxX(), y: maxY() * 0.68 };
-  var settings = { haptics: true, torch: true, strobe: true };
-  var introSeen = false;
-
-  function render(animated) {
-    bubbleEl.style.transition = animated
-      ? "transform 420ms cubic-bezier(.18,1.1,.3,1)"
-      : "none";
-    bubbleEl.style.transform =
-      "translate3d(" + (MARGIN + pos.x) + "px," + (MARGIN + pos.y) + "px,0)";
-  }
-
-  // =====================================================================
-  // Haptics + torch (browser approximations)
-  // =====================================================================
-  function haptic(pattern) {
-    if (!settings.haptics) return;
-    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
-  }
-  function tick()  { haptic(8); }
-  function light() { haptic(14); }
-  function sosAlarm() { haptic([0, 700, 180, 700, 180, 900]); }
-
-  var torchTimers = [];
-  function torchOff() {
-    torchTimers.forEach(clearTimeout);
-    torchTimers = [];
-    flashEl.classList.remove("on");
-  }
-  function torchSos() {
-    if (!settings.torch) return;
-    torchOff();
-    if (settings.strobe) {
-      // ... --- ...  (dot 200, dash 600, gap 200, letter gap 600)
-      var t = 0;
-      var pattern = [];
-      ["...", "---", "..."].forEach(function (word) {
-        word.split("").forEach(function (sym, i) {
-          if (i) { pattern.push([t, 0, 200]); t += 200; }
-          var dur = sym === "." ? 200 : 600;
-          pattern.push([t, 1, dur]); t += dur;
-        });
-        pattern.push([t, 0, 600]); t += 600;
-      });
-      t += 900;
-      for (var cycle = 0; cycle < 2; cycle++) {
-        pattern.forEach(function (p) {
-          var at = p[0] + cycle * (t + 0);
-          torchTimers.push(setTimeout(function () {
-            flashEl.classList.toggle("on", p[1] === 1);
-          }, at));
-        });
-      }
-      // hold steady on
-      torchTimers.push(setTimeout(function () { flashEl.classList.add("on"); }, t * 2));
-    } else {
-      torchTimers.push(setTimeout(function () { flashEl.classList.add("on"); }, 0));
-    }
-  }
-
-  // =====================================================================
-  // Cards
-  // =====================================================================
-  var cardTimer = null;
-
-  var GLYPH = {
-    calendar: '<svg class="glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9a9aa3" stroke-width="1.3" stroke-linecap="round"><rect x="1.5" y="3" width="13" height="11.5" rx="2.5"/><path d="M1.5 6.5h13"/><path d="M5 9.5h.01M11 9.5h.01" stroke-width="2"/></svg>',
-    battery:  '<svg class="glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9a9aa3" stroke-width="1.3" stroke-linecap="round"><rect x="1.5" y="4.5" width="10" height="7" rx="2"/><path d="M13.5 7v2" stroke-width="2" stroke="#9a9aa3"/><rect x="3.5" y="6.5" width="3.6" height="3" fill="#f4f4f6" stroke="none"/></svg>',
-    weather:  '<svg class="glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9a9aa3" stroke-width="1.3" stroke-linecap="round"><path d="M9.5 11.5a2.5 2.5 0 0 0-.5-4.95 3.5 3.5 0 0 0-6.72 1.1A2.4 2.4 0 0 0 2.8 11.5"/><path d="M5 13l-1 2M10 13l-1 2"/></svg>',
-    time:     '<svg class="glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9a9aa3" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l3 1.5"/></svg>'
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem('puck.'+k); return v===null?d:JSON.parse(v);} catch(e){return d;} },
+    set: function (k, v) { try { localStorage.setItem('puck.'+k, JSON.stringify(v)); } catch(e){} }
   };
 
-  function showCard(kind, label, headline, detail, mono, ttl) {
-    cardEl.innerHTML =
-      (GLYPH[kind] ? GLYPH[kind] : "") +
-      '<div class="label">' + label + "</div>" +
-      '<div class="headline' + (mono ? " mono" : "") + '">' + headline + "</div>" +
-      (detail ? '<div class="detail">' + detail + "</div>" : "");
-    positionCard();
-    requestAnimationFrame(function () { cardEl.classList.add("show"); });
+  // -- The 100 jokes (same bag the app ships) --------------------------------
+  var JOKES = ["You've been productive today in the sense that you've produced a lot of anxiety.", "Somewhere, someone is drafting a reply to an email you sent three weeks ago.", "Your browser has forty-seven tabs open. Twelve of them are the same article.", "You could have learned French in the time you've spent looking for your phone.", "The meeting could have been an email. The email could have been nothing.", "Your houseplants are not thriving. They're waiting you out.", "The laundry isn't piling up. It's achieving tenure.", "You've read the terms and conditions exactly zero times, and it shows.", "The snooze button has been pressed with more conviction than anything else you own.", "Your battery is at twelve percent, which is also your honest estimate of the week.", "There's a version of you that went to bed at ten. They're very disappointed, quietly.", "Your reply-all moment is still being discussed in a group chat you left.", "The gym membership is not wasted. It's a monthly donation to a future self who doesn't exist.", "You've organised your desk twice this week. The work is still there, under the organisation.", "Somewhere a printer is jamming, and it's personal.", "The leftovers in your fridge have moved past expiry into folklore.", "Your headphones are in one ear because the other one is in yesterday's coat pocket.", "You've been meaning to read that book for so long it's come out in a new edition.", "The Wi-Fi didn't go down. It just needed a moment, like everyone else.", "Your watch says 10,000 steps. Your watch has never seen you take a stairlift.", "The cloud is just someone else's computer, worrying about your files.", "Your alarm has one job and negotiates every morning.", "There's a group project somewhere still carrying your name with quiet resentment.", "The fridge light goes on and off for an audience of one, repeatedly, at midnight.", "You've spelled the same word two ways in one sentence and committed to neither.", "Your umbrella is exactly where you left it: somewhere else.", "The podcast is at 2x speed. The insight is at 0.5x.", "You've refreshed the page. Nothing has changed. You'll refresh again in a minute.", "The plant you bought to feel responsible has its own unfinished business.", "Your queue is three shows deep. You'll rewatch the first one instead.", "The junk drawer isn't disorganised. It's an archive with no index.", "You've written 'quick call?' to someone you could have called in the time it took to type it.", "Your phone storage is full of photos you'll look at once, while deleting, in four years.", "The parcel says out for delivery. It's having a look around first.", "You've apologised to a piece of furniture today. It accepted.", "The comments section is not ready for your opinion, and neither are you.", "Your handwriting peaked in primary school and has been coasting since.", "There's a shopping list on your phone titled 'proper shop' from last spring.", "You've hit save twice. You'll still wonder if it saved.", "The kettle has been boiled twice for one cup. Both times felt necessary.", "Your screen time report is less a statistic and more a verdict.", "You've narrated your own search out loud, alone, in a quiet flat.", "The neighbour's drill has become a fixture of your working week. You've named it, internally.", "You've typed a long message, reread it, and sent 'sounds good'.", "The updates are ready. They've been ready. They will remain ready, patiently.", "Your trolley has a wheel with ambitions of its own.", "You've walked into a room with total conviction and no purpose.", "The recipe said 20 minutes. It didn't know your oven. It didn't know you.", "You've enjoyed a full conversation with someone while silently rehearsing your exit.", "The bin says it's full. The bin has been saying it's full since Tuesday.", "Your inbox has 4,000 unread emails and one you're actually avoiding.", "You've updated your software to fix a problem you'd grown attached to.", "The dishwasher was loaded with real intent and one plate, wrong, every time.", "Your socks have separated in the wash like couples who stayed for the children.", "You've aged out of staying up late and into being tired all day anyway.", "The customer satisfaction survey wants five minutes. It will take four minutes and your dignity.", "You've stretched once today and considered the fitness chapter closed.", "The group chat went quiet three hours ago, which is somehow worse than an argument.", "Your lunch happened at your desk, over the keyboard, unfinished, unremembered.", "You've read a page, thought about something else, and read it again with fresh eyes.", "The software update finished at 99% and took a break, like the rest of us.", "Your 'final version' has a version number you're embarrassed to say out loud.", "You've opened the fridge as if the answer might have changed since the last visit.", "The corridor greeting lasted four steps and contained six emotions.", "You've muted a chat and told yourself it's temporary. It has heirs now.", "The washing machine finished its cycle an hour ago and has been humming judgment ever since.", "Your bed is made. Not well, but made, which is the whole point, apparently.", "You've typed 'per my last email' and felt a small, private thunderstorm.", "The phantom buzz in your pocket was your leg. Your leg is not a good communicator.", "You've watched a video summary of a film so you can talk about the film.", "The plant on your desk is plastic, and even it looks tired.", "You've set two alarms for the same minute, in case one of them develops doubts.", "The appointment card is in a wallet you haven't opened since the appointment was made.", "You've had the same five tabs for so long they're load-bearing.", "The takeaway menu drawer has outlived several relationships and one fridge.", "You've rehearsed a witty reply for so long the conversation moved on.", "Your keyboard has a crumb stratum that archaeologists would respect.", "You've walked past the gym and made eye contact with the door.", "The password reset email arrived two hours late, like a letter from a different era.", "You've cleaned something nobody will see and felt genuinely heroic.", "The ring binder is labelled 'important' and contains a single, blank page.", "You've said 'you too' to a waiter who wished you a good meal.", "The video call has one person frozen mid-blink, and they've been like that for a while.", "You've put the second sock on and considered it a complete outfit decision.", "The search results say 'people also ask'. Nobody asked what you just asked.", "You've carried a reusable bag to the shop and bought things you'll carry by hand.", "The calendar notification fired for a meeting that was cancelled in a thread you weren't on.", "You've said 'let's circle back' and meant never.", "The delivery driver photographed your parcel from an artistic distance.", "You've bought a vegetable with a plan. The plan is now a memory. The vegetable remains.", "Your phone case has a pocket for a card you've never once retrieved quickly.", "You've been on hold so long the hold music has developed a narrative.", "The shared document has forty-two comments and one unresolved feeling.", "You've waved at someone who was waving at a person behind you, and committed to the wave.", "The receipt says you bought snacks. The receipt is a historian of your evening.", "You've answered 'busy' when asked how you are, and it was mostly true, mostly.", "The e-book app says you have 26 hours left in this book. You have other plans, apparently.", "You've unplugged one cable to charge another, and the room noticed.", "The weekend plans are 'nothing much', and it's the most protected entry in your calendar.", "You've been saying 'this week will be calmer' for six weeks, with increasing confidence."];
 
-    clearTimeout(cardTimer);
-    cardTimer = setTimeout(hideCard, ttl || DISMISS_TOAST);
+  // -- Bubble position, spring physics ----------------------------------------
+  var maxX = stage.clientWidth - BUBBLE - MARGIN*2;
+  var maxY = stage.clientHeight - BUBBLE - MARGIN*2;
+  var pos = { x: maxX, y: maxY };
+  var vel = { x: 0, y: 0 };
+  var springId = null;
+
+  function paintBubble() {
+    bubble.style.left = (MARGIN + pos.x) + 'px';
+    bubble.style.top = (MARGIN + pos.y) + 'px';
   }
 
-  function hideCard() {
-    cardEl.classList.remove("show");
-    clearTimeout(cardTimer);
-  }
-
-  // Anchor to the bubble's side; flip above/below so it never covers the target.
-  function positionCard() {
-    var bubbleOnLeft = pos.x < maxX() / 2;
-    var bubbleLow    = pos.y > maxY() * 0.5;
-    cardEl.style.left  = bubbleOnLeft ? MARGIN + "px" : "auto";
-    cardEl.style.right = bubbleOnLeft ? "auto" : MARGIN + "px";
-    if (bubbleLow) {
-      cardEl.style.top = "auto";
-      cardEl.style.bottom = (H - MARGIN - pos.y + 14) + "px";
-    } else {
-      cardEl.style.bottom = "auto";
-      cardEl.style.top = (pos.y + MARGIN + BUBBLE + 14) + "px";
-    }
-  }
-
-  // =====================================================================
-  // Context: the tap
-  // =====================================================================
-  function clockOf(d) {
-    var h = d.getHours() % 12 === 0 ? 12 : d.getHours() % 12;
-    var s = d.getHours() < 12 ? "AM" : "PM";
-    return d.getMinutes() === 0 ? h + " " + s : h + ":" + String(d.getMinutes()).padStart(2, "0") + " " + s;
-  }
-  function stamp(d) {
-    var m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    return d.getDate() + " " + m[d.getMonth()] + ", " + clockOf(d);
-  }
-
-  // A rotating script of ranked context items, so repeated taps show the
-  // priority order rather than the same line over and over.
-  var CONTEXT = [
-    { kind: "calendar", label: "NEXT UP",        headline: "Team Sync in 12m",                     detail: "Dal Lake Room · 3rd floor" },
-    { kind: "battery",  label: "BATTERY",        headline: "14% — charge before you leave",        detail: "" },
-    { kind: "weather",  label: "WEATHER",        headline: "Rain at 3 PM — take an umbrella",      detail: "Drizzle · 14°" },
-    { kind: "calendar", label: "HAPPENING NOW",  headline: "Standup started 6m ago",               detail: "" },
-    { kind: "battery",  label: "BATTERY",        headline: "Charged to 96%",                       detail: "" },
-    { kind: "weather",  label: "WEATHER",        headline: "2° outside — wear a jacket",           detail: "Clear" },
-    { kind: "time",     label: "ALL CLEAR",      headline: "",                                     detail: "" }
-  ];
-  var ctxIndex = 0;
-
-  function singleTap() {
-    light();
-    ctxIndex = (ctxIndex + 1) % CONTEXT.length;
-    var item = CONTEXT[ctxIndex];
-    var now = new Date();
-
-    // Two-phase, exactly like the app: neutral card immediately, refined
-    // once the "snapshot" resolves.
-    showCard("time", "PUCK", "Checking…", "", false, DISMISS_TOAST);
-    setTimeout(function () {
-      var headline = item.headline;
-      if (item.kind === "time") {
-        headline = clockOf(now) + " — nothing needs you right now.";
+  function springTo(tx, ty) {
+    if (springId) cancelAnimationFrame(springId);
+    // Critically-under-damped spring, stiffness 400 damping ratio 0.63,
+    // approximated per-frame.
+    var STIFF = 400, DAMP = 25.2;
+    var last = performance.now();
+    function tick(now) {
+      var dt = Math.min(0.032, (now - last)/1000); last = now;
+      var ax = -STIFF*(pos.x-tx) - DAMP*vel.x;
+      var ay = -STIFF*(pos.y-ty) - DAMP*vel.y;
+      vel.x += ax*dt; vel.y += ay*dt;
+      pos.x += vel.x*dt; pos.y += vel.y*dt;
+      paintBubble();
+      if (Math.abs(pos.x-tx) > 0.5 || Math.abs(pos.y-ty) > 0.5 || Math.abs(vel.x) > 1 || Math.abs(vel.y) > 1) {
+        springId = requestAnimationFrame(tick);
+      } else {
+        pos.x = tx; pos.y = ty; vel.x = vel.y = 0; paintBubble(); springId = null;
       }
-      showCard(item.kind, item.label, headline, item.detail, false, DISMISS_TOAST);
-    }, 320);
-  }
-
-  // =====================================================================
-  // Jokes: the double tap
-  // =====================================================================
-  var JOKES = [
-    ["joke","I told my therapist I have commitment issues. She said, see you never."],
-    ["joke","My houseplants are alive purely out of spite."],
-    ["joke","I have a photographic memory but no film."],
-    ["joke","They call it rush hour, and yet nobody is moving."],
-    ["joke","My dog understands every word I say. He simply disagrees."],
-    ["joke","I am reading a book on anti-gravity. It is impossible to put down."],
-    ["joke","Cloud storage is just someone else's computer, worrying about my files."],
-    ["joke","I do not have a short attention span. I have a long attention span that I choose not to use."],
-    ["joke","The meeting could have been an email. The email could have been nothing."],
-    ["joke","I keep my phone on silent because my thoughts are loud enough."],
-    ["joke","Optimism is just pessimism that has not been tested yet."],
-    ["quote","The journey of a thousand miles begins with a slightly uncomfortable chair."],
-    ["quote","You miss one hundred percent of the naps you do not take."],
-    ["quote","Your only limit is you. Also gravity. Mostly gravity."],
-    ["quote","Nothing worth having comes easy. Except dust. Dust comes very easy."],
-    ["quote","The best time to plant a tree was twenty years ago. The second best time is after chai."],
-    ["quote","Failure is simply the opportunity to begin again, this time with more snacks."],
-    ["quote","Trust the timing of your life, but also set an alarm."],
-    ["quote","When one door closes, another opens. Usually it is the fridge."],
-    ["quote","Somewhere there is a version of you that went to bed at ten. Respect them."]
-  ];
-  var jokeBag = [], jokeCursor = 0;
-  function nextJoke() {
-    if (!jokeBag.length || jokeCursor >= jokeBag.length) {
-      jokeBag = JOKES.map(function (_, i) { return i; });
-      for (var i = jokeBag.length - 1; i > 0; i--) {
-        var j = Math.floor(Math.random() * (i + 1));
-        var t = jokeBag[i]; jokeBag[i] = jokeBag[j]; jokeBag[j] = t;
-      }
-      jokeCursor = 0;
     }
-    return JOKES[jokeBag[jokeCursor++]];
+    springId = requestAnimationFrame(tick);
   }
 
-  function doubleTap() {
-    light();
-    var j = nextJoke();
-    showCard(
-      "time",
-      j[0] === "quote" ? "MOTIVATION, PROBABLY" : "",
-      j[1],
-      "",
-      true,
-      DISMISS_TOAST
-    );
-    if (j[0] !== "quote") cardEl.querySelector(".label").remove();
+  paintBubble();
+
+  // -- Card layer --------------------------------------------------------------
+  var cardTimer = null, currentCard = null;
+
+  function showCard(html, ms) {
+    hideCard(true);
+    var el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = html;
+    positionCard(el);
+    cardhost.appendChild(el);
+    currentCard = el;
+    if (ms) cardTimer = setTimeout(hideCard, ms);
   }
 
-  // =====================================================================
-  // SOS: the long press
-  // =====================================================================
-  var sosTimers = [];
-  var SOS_COORDS = { lat: 34.0837, lng: 74.7973, acc: 8 }; // Srinagar
-
-  function armSos() {
-    sosAlarm();
-    document.getElementById("sos-title").textContent = "Locating…";
-    document.getElementById("sos-status").textContent = "Getting your location…";
-    document.getElementById("sos-body").textContent = "Building message…";
-    document.getElementById("torch-state").textContent = settings.torch ? "TORCH ON" : "";
-
-    var phone = document.getElementById("s-phone").value.trim();
-    var name  = document.getElementById("s-name").value.trim();
-    var hasContact = phone.replace(/\D/g, "").length >= 6;
-    var toEl = document.getElementById("sos-to");
-    toEl.textContent = hasContact
-      ? "TO  " + (name || phone) + "  ·  " + mask(phone)
-      : "NO EMERGENCY CONTACT SET";
-    toEl.className = hasContact ? "to" : "to warn";
-
-    var sendBtn = document.getElementById("sos-send");
-    sendBtn.textContent = hasContact
-      ? "SEND SMS TO " + (name || phone).toUpperCase()
-      : "ADD AN EMERGENCY CONTACT";
-
-    sosEl.classList.add("show");
-    torchSos();
-
-    sosTimers.push(setTimeout(function () {
-      var now = new Date();
-      var body = "SOS - I need help. Loc: " +
-        SOS_COORDS.lat.toFixed(5) + ", " + SOS_COORDS.lng.toFixed(5) +
-        " (+/-" + SOS_COORDS.acc + "m) " +
-        "https://maps.google.com/?q=" + SOS_COORDS.lat.toFixed(5) + "," + SOS_COORDS.lng.toFixed(5) +
-        " - " + stamp(now);
-      document.getElementById("sos-title").textContent = "Ready to send";
-      document.getElementById("sos-status").textContent = "Ready to send";
-      document.getElementById("sos-body").textContent = body;
-    }, 1100));
-
-    sosTimers.push(setTimeout(function () {
-      torchOff();
-      document.getElementById("torch-state").textContent = "";
-    }, SOS_RUNAWAY));
+  function hideCard(instant) {
+    if (cardTimer) { clearTimeout(cardTimer); cardTimer = null; }
+    var el = currentCard; currentCard = null;
+    if (!el) return;
+    if (instant) { el.remove(); return; }
+    el.classList.add('leaving');
+    setTimeout(function(){ el.remove(); }, 240);
   }
 
-  function mask(phone) {
-    var d = phone.replace(/\D/g, "");
-    if (d.length < 6) return phone;
-    return "+" + d.substring(0, 2) + "•••••" + d.substring(d.length - 3);
-  }
-
-  function closeSos(sent) {
-    sosTimers.forEach(clearTimeout);
-    sosTimers = [];
-    torchOff();
-    sosEl.classList.remove("show");
-    if (sent) {
-      tick();
-      showCard("time", "SENT", "Opening Messages…", "", false, 2600);
+  // 16px above the bubble, centred on the bubble, clamped to the edges.
+  function positionCard(el) {
+    var bubbleCentreX = MARGIN + pos.x + BUBBLE/2;
+    var w = Math.min(el.offsetWidth || 340, stage.clientWidth - 32);
+    var left = Math.max(16, Math.min(bubbleCentreX - (el.offsetWidth || w)/2, stage.clientWidth - 16 - (el.offsetWidth || w)));
+    el.style.left = left + 'px';
+    var placeBelow = (MARGIN + pos.y) < 240;
+    if (placeBelow) {
+      el.style.top = (MARGIN + pos.y + BUBBLE + 16) + 'px';
     } else {
-      haptic(90);
+      el.style.bottom = (stage.clientHeight - (MARGIN + pos.y) + 16) + 'px';
+      el.style.top = 'auto';
     }
   }
 
-  document.getElementById("sos-send").addEventListener("click", function () {
-    var phone = document.getElementById("s-phone").value.trim();
-    if (phone.replace(/\D/g, "").length < 6) {
-      openSettings();
-      return;
-    }
-    closeSos(true);
-  });
-  document.getElementById("sos-cancel").addEventListener("click", function () { closeSos(false); });
-
-  // =====================================================================
-  // Intent bar: the swipe up
-  // =====================================================================
-  var qEl = document.getElementById("q");
-  var answerEl = document.getElementById("answer");
-  var aQ = document.getElementById("a-q");
-  var aText = document.getElementById("a-text");
-  var aMeta = document.getElementById("a-meta");
-  var aDots = document.getElementById("a-dots");
-  var hintsEl = document.getElementById("hints");
-  var streamTimer = null;
-
-  function openIntent() {
-    tick();
-    hideCard();
-    intentEl.classList.add("show");
-    aText.textContent = "";
-    answerEl.style.display = "none";
-    hintsEl.style.display = "block";
-    setTimeout(function () { qEl.focus(); }, 60);
+  // -- Copy (must match the app) ------------------------------------------------
+  function timeCard() {
+    var h = new Date().getHours();
+    var t = clock();
+    if (h < 5)  return cardHtml(t, 'Nothing urgent. Sleep is also a plan.');
+    if (h < 11) return cardHtml('GOOD MORNING', t + ' — clear ahead.');
+    if (h < 17) return cardHtml('GOOD AFTERNOON', t + ' — nothing needs you right now.');
+    if (h < 22) return cardHtml('GOOD EVENING', t + ' — nothing needs you right now.');
+    return cardHtml(t, 'Nothing urgent. Tomorrow is already queueing.');
   }
-  function closeIntent() {
-    intentEl.classList.remove("show");
-    clearInterval(streamTimer);
-    qEl.blur();
+  function cardHtml(label, headline) {
+    return '<div class="label">' + label + '</div>' + headline;
+  }
+  function clock() {
+    var d = new Date(), h = d.getHours()%12; if (h===0) h=12;
+    var m = d.getMinutes();
+    return m===0 ? h + ' ' + (d.getHours()<12?'AM':'PM')
+                 : h + ':' + String(m).padStart(2,'0') + ' ' + (d.getHours()<12?'AM':'PM');
   }
 
-  // Local resolver -- mirrors LocalIntentResolver. Coin/dice/sums never
-  // leave the device; everything else is canned for the preview.
-  function resolveLocal(q) {
-    var s = q.toLowerCase().trim();
-    if (/\b(coin|flip|heads|tails|toss)\b/.test(s)) return Math.random() < 0.5 ? "Heads." : "Tails.";
-    var dnd = s.replace(/\s/g, "").match(/(\d*)d(\d+)/);
+  // -- Local intent resolver (same rules as the app) ------------------------------
+  function tryResolve(raw) {
+    var t = raw.trim().toLowerCase();
+    if (!t) return null;
+    if (/\b(coin|flip|heads|tails|toss)\b/.test(t)) return Math.random()<0.5?'Heads.':'Tails.';
+    var dnd = t.replace(/ /g,'').match(/(\d*)d(\d+)/);
     if (dnd) {
-      var n = Math.min(20, Math.max(1, parseInt(dnd[1] || "1", 10)));
-      var sides = Math.min(100, Math.max(2, parseInt(dnd[2], 10)));
-      var total = 0;
-      for (var i = 0; i < n; i++) total += Math.floor(Math.random() * sides) + 1;
-      return n === 1 ? total + "." : n + "d" + sides + " = " + total + ".";
+      var n = Math.min(20, Math.max(1, parseInt(dnd[1]||'1',10)));
+      var s = Math.min(100, Math.max(2, parseInt(dnd[2],10)));
+      var tot = 0; for (var i=0;i<n;i++) tot += 1+Math.floor(Math.random()*s);
+      return n===1 ? tot+'.' : n+'d'+s+' = '+tot+'.';
     }
-    if (/\b(dice|die|roll)\b/.test(s)) return (Math.floor(Math.random() * 6) + 1) + ".";
-    var rnd = s.match(/random (?:number )?(?:between )?(\d+)\s*(?:and|to|-)\s*(\d+)/);
-    if (rnd) {
-      var lo = parseInt(rnd[1], 10), hi = parseInt(rnd[2], 10);
-      return (lo + Math.floor(Math.random() * (hi - lo + 1))) + ".";
-    }
-    if (/\b(time|what's the time|clock)\b/.test(s)) return clockOf(new Date()) + ".";
-    if (/\b(date|day|today)\b/.test(s)) {
-      var days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-      var d = new Date();
-      return days[d.getDay() - 1] + ", " + stamp(d) + ".";
-    }
-    if (/^[0-9.\s+\-*/%^()]+$/.test(q) && /[0-9]/.test(q)) {
+    if (/\b(dice|die|roll)\b/.test(t)) return (1+Math.floor(Math.random()*6))+'.';
+    var rm = t.match(/random (?:number )?(?:between )?(\d+)\s*(?:and|to|-)\s*(\d+)/);
+    if (rm) { var lo=+rm[1], hi=+rm[2]; return (hi<=lo?lo:lo+Math.floor(Math.random()*(hi-lo+1)))+'.'; }
+    var norm = t.replace(/^(what'?s|what is|whats|calculate|compute)\s+/,'')
+                .replace(/\?/g,'').replace(/×/g,'*').replace(/÷/g,'/')
+                .replace(/\btimes\b/g,'*').replace(/\bmultiplied by\b/g,'*')
+                .replace(/\bplus\b/g,'+').replace(/\bminus\b/g,'-')
+                .replace(/\bdivided by\b/g,'/').replace(/x/g,'*').trim();
+    if (/^[0-9\.\s\+\-\*\/\%\^\(\)]+$/.test(norm) && /[0-9]/.test(norm)) {
       try {
-        // eslint-disable-next-line no-new-func
-        var v = Function('"use strict";return (' + q + ")")();
-        if (typeof v === "number" && isFinite(v)) {
-          return (Math.round(v * 1e6) / 1e6).toString();
+        var v = Function('"use strict";return (' + norm.replace(/\^/g,'**') + ')')();
+        if (typeof v === 'number' && isFinite(v)) {
+          return (Number.isInteger(v) ? String(v) : String(Math.round(v*1e6)/1e6)) + '.';
         }
-      } catch (e) {}
+      } catch(e) {}
     }
+    if (/\b(time|clock)\b/.test(t)) return clock()+'.';
+    if (/\b(date|day|today)\b/.test(t)) {
+      var d=new Date();
+      return ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d.getDay()-1<0?6:d.getDay()-1] + ', ' + clock() + '.';
+    }
+    var pm = t.match(/(.{1,40}?)\s+or\s+(.{1,40}?)$/);
+    if (pm && !/\d/.test(pm[0])) return Math.random()<0.5 ? pm[1].trim()+'.' : pm[2].trim()+'.';
     return null;
   }
 
-  var CANNED = [
-    [/wool|sweater|wash/i,      "Wash cold on the wool cycle, then dry it flat."],
-    [/umbrella|rain/i,          "Yes — rain starts around 4 PM."],
-    [/alarm|wake me|7\s*am/i,   "Alarm set for 7:00 AM."],
-    [/jacket|coat/i,            "Yes. It drops to 2° after sunset."],
-    [/tea|coffee|chai/i,        "Kahwa. It is not a discussion."],
-    [/dinner|eat|food/i,        "Rajma chawal, and stop pretending you will cook."],
-    [/should i|which one|pick/i,"Go with the first one. You already knew."],
-    [/tired|sleep/i,            "Sleep. Whatever it is, it will still be there at seven."],
-    [/heads or tails/i,         "Heads."]
-  ];
+  var OFFLINE = 'Offline. Try coin, dice, or maths.';
 
-  function submit() {
-    var q = qEl.value.trim();
-    if (!q) return;
-    clearInterval(streamTimer);
-    hideCard();
+  // -- Gesture state machine --------------------------------------------------------
+  var pointer = null, origin = null, mode = 'none';
+  var holdStart = 0, holdRAF = null, holdDone = false;
+  var lastTapAt = 0, doubleTapTimer = null;
+  var sosCountdown = null, sosFired = false;
 
-    answerEl.style.display = "block";
-    hintsEl.style.display = "none";
-    aQ.textContent = '"' + q + '"';
-    aText.textContent = "";
-    aMeta.textContent = "THINKING";
-    aDots.style.display = "flex";
-    qEl.blur();
+  function pressScale(on) { bubble.style.transform = on ? 'scale(0.94)' : 'scale(1)'; bubble.style.transition = 'transform '+(on?80:160)+'ms ease'; }
 
-    var answer = resolveLocal(q);
-    if (answer === null) {
-      for (var i = 0; i < CANNED.length; i++) {
-        if (CANNED[i][0].test(q)) { answer = CANNED[i][1]; break; }
-      }
+  function holdTick() {
+    var p = Math.min(1, (performance.now()-holdStart)/HOLD_MS);
+    holdring.style.strokeDashoffset = 188.5*(1-p);
+    if (p >= 1 && !holdDone) {
+      holdDone = true;
+      cancelAnimationFrame(holdRAF);
+      armSos();
+    } else {
+      holdRAF = requestAnimationFrame(holdTick);
     }
-    if (answer === null) {
-      answer = document.getElementById("s-key").value.trim()
-        ? "Wash cold only."
-        : "No API key set — Puck is running offline.";
-    }
-
-    var delay = answer.length > 24 ? 260 : 140; // "network" latency
-    setTimeout(function () {
-      aDots.style.display = "none";
-      var i = 0;
-      streamTimer = setInterval(function () {
-        aText.textContent = answer.slice(0, ++i);
-        if (i >= answer.length) {
-          clearInterval(streamTimer);
-          aMeta.textContent = "TAP TO COPY";
-          setTimeout(closeIntent, DISMISS_ANSWER);
-        }
-      }, 14);
-    }, delay);
   }
 
-  document.getElementById("send").addEventListener("click", submit);
-  qEl.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
-  aText.addEventListener("click", function () {
-    if (!aText.textContent) return;
-    try { navigator.clipboard.writeText(aText.textContent); } catch (e) {}
-    aMeta.textContent = "COPIED";
-    setTimeout(function () { aMeta.textContent = "TAP TO COPY"; }, 2000);
-  });
-  aMeta.addEventListener("click", function () {
-    if (!aText.textContent) return;
-    try { navigator.clipboard.writeText(aText.textContent); } catch (e) {}
-    aMeta.textContent = "COPIED";
-    setTimeout(function () { aMeta.textContent = "TAP TO COPY"; }, 2000);
-  });
-
-  // Mic: simulated (no recogniser inside a sandboxed frame).
-  var micEl = document.getElementById("mic");
-  var listening = false;
-  var MIC_SAMPLES = ["flip a coin", "should I take an umbrella", "wake me at 7", "17 * 24"];
-  micEl.addEventListener("click", function () {
-    if (listening) {
-      listening = false;
-      micEl.classList.remove("active");
-      return;
-    }
-    listening = true;
-    micEl.classList.add("active");
-    qEl.placeholder = "Listening…";
-    setTimeout(function () {
-      qEl.value = MIC_SAMPLES[Math.floor(Math.random() * MIC_SAMPLES.length)];
-      qEl.placeholder = "Ask anything…";
-      listening = false;
-      micEl.classList.remove("active");
-      submit();
-    }, 1500);
-  });
-
-  // Swipe down on the scrim closes the bar.
-  var intentDrag = 0;
-  intentEl.addEventListener("pointerdown", function (e) {
-    if (e.target === intentEl || e.target.classList.contains("intent-body")) intentDrag = 0;
-  });
-  intentEl.addEventListener("pointerup", function (e) {
-    if (e.target === intentEl || e.target.classList.contains("intent-body")) closeIntent();
-  });
-
-  // =====================================================================
-  // Settings
-  // =====================================================================
-  var settingsEl = document.getElementById("settings");
-  function openSettings() { settingsEl.classList.add("show"); }
-  function closeSettings() { settingsEl.classList.remove("show"); }
-  document.getElementById("open-settings").addEventListener("click", openSettings);
-  document.getElementById("close-settings").addEventListener("click", closeSettings);
-
-  document.getElementById("s-key-toggle").addEventListener("click", function () {
-    var k = document.getElementById("s-key");
-    var show = k.type === "password";
-    k.type = show ? "text" : "password";
-    this.textContent = show ? "HIDE" : "SHOW";
-  });
-
-  Array.prototype.forEach.call(document.querySelectorAll(".switchrow .sw"), function (sw) {
-    sw.addEventListener("click", function () {
-      sw.classList.toggle("on");
-      settings[sw.dataset.k] = sw.classList.contains("on");
-      tick();
-    });
-  });
-
-  Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (chip) {
-    chip.addEventListener("click", function () {
-      document.querySelectorAll(".chip").forEach(function (c) { c.classList.remove("on"); });
-      chip.classList.add("on");
-      tick();
-    });
-  });
-
-  // =====================================================================
-  // The gesture recogniser -- a direct port of PuckGestureRecognizer
-  // =====================================================================
-  var mode = "none";           // none | drag | consumed
-  var activeId = null;
-  var origin = null, lastPos = null;
-  var longTimer = null, doubleTimer = null, lastTapAt = 0;
-  var holdRaf = null, holdStart = 0;
-
-  function setRing(p) {
-    ringEl.style.strokeDashoffset = String(197.92 * (1 - Math.max(0, Math.min(1, p))));
-  }
-
-  function startHoldRing() {
+  bubble.addEventListener('pointerdown', function (e) {
+    if (scrim.classList.contains('open') || sos.classList.contains('open')) return;
+    pointer = e.pointerId; origin = { x: e.clientX, y: e.clientY };
+    mode = 'none'; holdDone = false;
+    pressScale(true);
     holdStart = performance.now();
-    cancelAnimationFrame(holdRaf);
-    (function step() {
-      var p = (performance.now() - holdStart) / LONG_PRESS;
-      setRing(p);
-      if (p < 1 && mode === "none" && activeId !== null) {
-        holdRaf = requestAnimationFrame(step);
-      }
-    })();
-  }
-  function stopHoldRing() {
-    cancelAnimationFrame(holdRaf);
-    setRing(0);
-  }
-
-  function pressStart() {
-    bubbleEl.querySelector(".face").style.transform = "scale(0.93)";
-    startHoldRing();
-  }
-  function pressCancel() {
-    bubbleEl.querySelector(".face").style.transform = "scale(1)";
-    stopHoldRing();
-    bubbleEl.classList.remove("armed");
-  }
-
-  function fireLongPress() {
-    if (mode !== "none") return;
-    mode = "consumed";
-    bubbleEl.classList.add("armed");
-    pressCancel();
-    bubbleEl.classList.add("armed");
-    armSos();
-  }
-
-  function dismissIntro() {
-    if (introSeen) return;
-    introSeen = true;
-    legendEl.classList.add("hide");
-  }
-
-  bubbleEl.addEventListener("pointerdown", function (e) {
-    if (activeId !== null) return;          // one pointer only
-    activeId = e.pointerId;
-    bubbleEl.setPointerCapture(e.pointerId);
-    origin = { x: e.clientX, y: e.clientY };
-    lastPos = { x: e.clientX, y: e.clientY };
-    mode = "none";
-    bubbleEl.classList.add("dragging");
-    pressStart();
-
-    clearTimeout(longTimer);
-    longTimer = setTimeout(fireLongPress, LONG_PRESS);
+    holdRAF = requestAnimationFrame(holdTick);
+    bubble.setPointerCapture(e.pointerId);
   });
 
-  bubbleEl.addEventListener("pointermove", function (e) {
-    if (e.pointerId !== activeId) return;
-    var dx = toCanvas(e.clientX - origin.x);
-    var dy = toCanvas(e.clientY - origin.y);
-
-    if (mode === "none") {
-      // Swipe up: fires mid-gesture, exactly like the app.
-      if (-dy >= SWIPE_UP && -dy >= Math.abs(dx) * AXIS_RATIO) {
-        clearTimeout(longTimer);
-        mode = "consumed";
-        pressCancel();
-        dismissIntro();
+  bubble.addEventListener('pointermove', function (e) {
+    if (pointer !== e.pointerId || origin === null) return;
+    var dx = e.clientX - origin.x, dy = e.clientY - origin.y;
+    if (mode === 'none') {
+      if (-dy >= SWIPE_UP_PX && -dy >= Math.abs(dx)*1.2) {
+        cancelAnimationFrame(holdRAF); holdring.style.strokeDashoffset = 188.5;
+        pressScale(false); mode = 'consumed';
         openIntent();
-        endGesture();
         return;
       }
-      if (Math.hypot(dx, dy) > TOUCH_SLOP) {
-        clearTimeout(longTimer);
-        mode = "drag";
-        pressCancel();
-        hideCard();
-        lastPos = { x: e.clientX, y: e.clientY };
+      if (Math.hypot(dx,dy) > SLOP) {
+        cancelAnimationFrame(holdRAF); holdring.style.strokeDashoffset = 188.5;
+        pressScale(false);
+        mode = 'drag'; bubble.classList.add('dragging');
+        origin = { x: e.clientX, y: e.clientY };
       }
     }
-
-    if (mode === "drag") {
-      pos.x = clamp(pos.x + toCanvas(e.clientX - lastPos.x), 0, maxX());
-      pos.y = clamp(pos.y + toCanvas(e.clientY - lastPos.y), 0, maxY());
-      lastPos = { x: e.clientX, y: e.clientY };
-      render(false);
+    if (mode === 'drag') {
+      pos.x = Math.max(0, Math.min(maxX, pos.x + e.movementX));
+      pos.y = Math.max(0, Math.min(maxY, pos.y + e.movementY));
+      paintBubble();
     }
   });
 
-  function endGesture() {
-    activeId = null;
-    origin = null; lastPos = null;
-    mode = "none";
-    bubbleEl.classList.remove("dragging");
-  }
+  function endPress(e) {
+    if (pointer !== e.pointerId) return;
+    pointer = null; origin = null;
+    cancelAnimationFrame(holdRAF); holdring.style.strokeDashoffset = 188.5;
+    pressScale(false);
 
-  bubbleEl.addEventListener("pointerup", function (e) {
-    if (e.pointerId !== activeId) return;
-    clearTimeout(longTimer);
-
-    if (mode === "drag") {
-      // Snap to the nearest edge. The app projects velocity; with a mouse
-      // there rarely is any, so nearest-edge is the honest port here.
-      pressCancel();
-      endGesture();
-      pos.x = pos.x < maxX() / 2 ? 0 : maxX();
-      render(true);
-      tick();
+    if (sos.classList.contains('open') && !sosFired) {
+      // Pocket-release detection: the finger lifted mid-countdown.
+      closeSos(true);
       return;
     }
 
-    if (mode === "none") {
-      var now = Date.now();
-      clearTimeout(doubleTimer);
-      if (lastTapAt && now - lastTapAt <= DOUBLE_TAP) {
-        lastTapAt = 0;
-        pressCancel();
-        dismissIntro();
-        doubleTap();
-      } else {
-        lastTapAt = now;
-        doubleTimer = setTimeout(function () {
-          doubleTimer = null;
-          pressCancel();
-          dismissIntro();
-          singleTap();
-        }, DOUBLE_TAP);
-      }
-    } else {
-      pressCancel();
+    if (mode === 'drag') {
+      mode = 'none'; bubble.classList.remove('dragging');
+      var tx = pos.x + vel.x*0 < maxX/2 ? 0 : maxX;
+      springTo(tx, Math.max(0, Math.min(maxY, pos.y)));
+      return;
     }
-    endGesture();
-  });
+    if (mode !== 'none') { mode = 'none'; return; }
 
-  bubbleEl.addEventListener("pointercancel", function (e) {
-    clearTimeout(longTimer);
-    pressCancel();
-    if (mode === "drag") { pos.x = pos.x < maxX() / 2 ? 0 : maxX(); render(true); }
-    endGesture();
-  });
-
-  // =====================================================================
-  // Chrome
-  // =====================================================================
-  function tickClock() {
-    var d = new Date();
-    document.getElementById("clock").textContent = clockOf(d).replace(":00", "");
+    // Tap resolution with the 260ms double-tap window.
+    var now = performance.now();
+    if (now - lastTapAt <= DOUBLE_TAP_MS) {
+      lastTapAt = 0; clearTimeout(doubleTapTimer);
+      showJoke();
+    } else {
+      lastTapAt = now;
+      doubleTapTimer = setTimeout(function(){ showCard(timeCard(), CARD_MS); }, DOUBLE_TAP_MS);
+    }
   }
-  tickClock();
-  setInterval(tickClock, 10000);
+  bubble.addEventListener('pointerup', endPress);
+  bubble.addEventListener('pointercancel', endPress);
 
-  // Fit the phone frame to the viewport.
+  // -- Intent bar -----------------------------------------------------------------
+  function openIntent() {
+    hideCard(true);
+    scrim.classList.add('open');
+    var bw = stage.clientWidth - 32;
+    intentbar.style.width = '72px';
+    intentbar.style.left = (MARGIN + pos.x + BUBBLE/2 - 36) + 'px';
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        intentbar.style.transition = 'width 240ms cubic-bezier(0.215,0.61,0.355,1), left 240ms cubic-bezier(0.215,0.61,0.355,1)';
+        intentbar.style.width = bw + 'px';
+        intentbar.style.left = '16px';
+      });
+    });
+    q.value = ''; updateMic();
+    setTimeout(function(){ q.focus(); }, 60);
+  }
+  function closeIntent() {
+    scrim.classList.remove('open');
+    intentbar.style.transition = '';
+    answerBox.style.display = 'none';
+    if (answerTimer) { clearTimeout(answerTimer); answerTimer = null; }
+  }
+  scrim.addEventListener('pointerdown', function (e) {
+    if (e.target === scrim) { var y0 = e.clientY;
+      scrim.addEventListener('pointerup', function h(e2){
+        scrim.removeEventListener('pointerup', h);
+        if (e2.clientY - y0 > 60 || e2.target === scrim) closeIntent();
+      });
+    }
+  });
+
+  micbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
+
+  function updateMic() {
+    if (q.value.trim().length > 0) {
+      micbtn.classList.add('send');
+      micbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
+    } else {
+      micbtn.classList.remove('send');
+      micbtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
+    }
+  }
+  q.addEventListener('input', updateMic);
+
+  var answerTimer = null;
+  function submitQuery() {
+    var query = q.value.trim();
+    if (!query) return;
+    q.blur();
+    answerBox.style.display = 'block';
+    var local = tryResolve(query);
+    var el = document.createElement('div');
+    el.className = 'card';
+    answerBox.innerHTML = '';
+    answerBox.appendChild(el);
+    if (local !== null) {
+      el.textContent = local;
+      answerTimer = setTimeout(closeIntent, ANSWER_MS);
+      return;
+    }
+    // No key in the preview: the honest offline line.
+    el.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    setTimeout(function () {
+      el.textContent = OFFLINE;
+      answerTimer = setTimeout(closeIntent, ANSWER_MS);
+    }, 700);
+  }
+  q.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitQuery(); });
+  micbtn.addEventListener('click', function () { if (q.value.trim()) submitQuery(); });
+
+  // -- SOS ---------------------------------------------------------------------------
+  function armSos() {
+    sosFired = false;
+    sos.classList.add('open');
+    sosbutton.textContent = 'CANCEL';
+    sosbutton.classList.remove('stop');
+    var hasContact = (store.get('contact','') || '').replace(/\D/g,'').length >= 6;
+    soscontact.style.display = hasContact ? 'none' : 'block';
+    soscontact.textContent = 'No emergency contact set';
+    soslabel.textContent = 'SOS in 3';
+    ringicon.style.display = 'none';
+    ringnum.style.display = 'grid';
+    ring.style.stroke = 'var(--emergency)';
+    var left = SOS_SECONDS;
+    ringnum.textContent = left;
+    ring.style.transition = 'none';
+    ring.style.strokeDashoffset = 0;
+    ring.style.strokeDasharray = 365.7;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        ring.style.transition = 'stroke-dashoffset 3s linear';
+        ring.style.strokeDashoffset = 365.7;
+      });
+    });
+    var n = SOS_SECONDS;
+    sosCountdown = setInterval(function () {
+      n -= 1;
+      if (n <= 0) { fireSos(); return; }
+      ringnum.textContent = n;
+      soslabel.textContent = 'SOS in ' + n;
+    }, 1000);
+  }
+
+  function fireSos() {
+    clearInterval(sosCountdown); sosCountdown = null;
+    sosFired = true;
+    sosbutton.textContent = 'STOP';
+    sosbutton.classList.add('stop');
+    ringnum.style.display = 'none';
+    ring.style.transition = 'stroke 200ms ease';
+    ring.style.strokeDashoffset = 0;
+    var hasContact = (store.get('contact','') || '').replace(/\D/g,'').length >= 6;
+    if (hasContact) {
+      ring.style.stroke = 'var(--success)';
+      ringicon.style.display = 'grid';
+      ringicon.style.color = 'var(--success)';
+      ringicon.textContent = '✓';
+      soslabel.textContent = 'Message ready in Messages';
+    } else {
+      ring.style.stroke = 'var(--text-sec)';
+      ringicon.style.display = 'grid';
+      ringicon.style.color = 'var(--text-sec)';
+      ringicon.textContent = '···';
+      soslabel.textContent = 'Finding your location';
+    }
+    // The torch pulse: two flashes, what the real app's beacon reads as on camera.
+    var flashes = 0;
+    var t = setInterval(function () {
+      torch.style.opacity = (flashes % 2 === 0) ? 0.9 : 0;
+      flashes += 1;
+      if (flashes > 5) { clearInterval(t); torch.style.opacity = 0; }
+    }, 320);
+  }
+
+  function closeSos(releasedEarly) {
+    clearInterval(sosCountdown); sosCountdown = null;
+    torch.style.opacity = 0;
+    if (releasedEarly) {
+      var c = (store.get('cancels', 0) || 0) + 1;
+      store.set('cancels', c);
+      paintCancelCount(c);
+    }
+    sos.classList.remove('open');
+  }
+
+  sosbutton.addEventListener('click', function () { closeSos(false); });
+
+  // -- Settings ------------------------------------------------------------------------
+  document.getElementById('settingslink').addEventListener('click', function () {
+    if (scrim.classList.contains('open') || sos.classList.contains('open')) return;
+    settingsEl.classList.add('open');
+    document.getElementById('s-key').value = store.get('key','');
+    document.getElementById('s-contact').value = store.get('contact','');
+    paintCancelCount(store.get('cancels', 0));
+  });
+  document.getElementById('backbtn').addEventListener('click', function () {
+    saveSettings();
+    settingsEl.classList.remove('open');
+  });
+  document.getElementById('pastebtn').addEventListener('click', function () {
+    var el = document.getElementById('s-key');
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (t) { if (t) el.value = t.trim(); }).catch(function(){});
+    }
+    el.focus();
+  });
+  function saveSettings() {
+    store.set('key', document.getElementById('s-key').value.trim());
+    store.set('contact', document.getElementById('s-contact').value.trim());
+  }
+  function paintCancelCount(c) {
+    cancelcount.textContent = 'Puck cancels itself when you release early. It has done that ' + c + (c===1?' time.':' times.');
+  }
+
+  // -- Scale to fit the viewport --------------------------------------------------------
   function fit() {
-    var pad = 150;
-    scale = Math.min(1, (window.innerWidth - 40) / 390, (window.innerHeight - pad) / 844);
-    document.getElementById("scaler").style.transform = "scale(" + scale + ")";
+    var s = Math.min(1, window.innerHeight/880, (window.innerWidth-24)/414);
+    stage.style.setProperty('--scale', s);
   }
-  window.addEventListener("resize", fit);
-  fit();
-
-  render(false);
-})();
+  window.addEventListener('resize', fit); fit();
 </script>
 </body>
 </html>

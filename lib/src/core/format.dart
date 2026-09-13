@@ -41,27 +41,39 @@ abstract final class PuckFormat {
     }
   }
 
-  static String coords(double lat, double lng) {
-    return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+  /// "34.0522°N, 118.2437°W" -- the human-readable form used in the SMS body.
+  static String coordsDegrees(double lat, double lng) {
+    final String ns = lat >= 0 ? 'N' : 'S';
+    final String ew = lng >= 0 ? 'E' : 'W';
+    return '${lat.abs().toStringAsFixed(4)}°$ns, '
+        '${lng.abs().toStringAsFixed(4)}°$ew';
   }
 
+  /// "maps.google.com/?q=34.0522,-118.2437" -- no scheme; every SMS client
+  /// auto-links it and the body stays short.
   static String coordsUrl(double lat, double lng) {
-    return 'https://maps.google.com/?q=${lat.toStringAsFixed(5)},${lng.toStringAsFixed(5)}';
+    return 'maps.google.com/?q='
+        '${lat.toStringAsFixed(4)},${lng.toStringAsFixed(4)}';
   }
 
+  /// "±12m"
   static String accuracy(double metres) {
-    if (metres < 0) return '--';
-    if (metres >= 1000) return '${(metres / 1000).toStringAsFixed(1)}km';
-    return '${metres.round()}m';
+    if (metres < 0) return '';
+    if (metres >= 1000) return '±${(metres / 1000).toStringAsFixed(1)}km';
+    return '±${metres.round()}m';
   }
 
-  /// "12 Sep, 3:14 PM"
-  static String shortStamp(DateTime t) {
+  /// "3:14 PM · Wed Jan 15"
+  static String stamp(DateTime t) {
+    const List<String> days = <String>[
+      'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', //
+    ];
     const List<String> months = <String>[
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    return '${t.day} ${months[t.month - 1]}, ${clock(t)}';
+    return '${clock(t)} · ${days[t.weekday - 1]} '
+        '${months[t.month - 1]} ${t.day}';
   }
 
   static double clamp(double v, double lo, double hi) {

@@ -12,19 +12,27 @@ import 'package:url_launcher/url_launcher.dart';
 ///
 /// That extra tap is a feature: it makes an accidental pocket-SOS recoverable.
 class MessagingService {
-  /// Under 160 characters so it stays a single GSM-7 segment.
+  /// Four lines, in the order a human would ask for them. No greeting, no
+  /// drama, no capitalised urgency -- the recipient knows the sender.
   static String buildSosBody({
-    required double latitude,
-    required double longitude,
-    required double accuracy,
+    required double? latitude,
+    required double? longitude,
+    required double? accuracy,
     required DateTime at,
   }) {
-    final String coords = PuckFormat.coords(latitude, longitude);
-    final String map = PuckFormat.coordsUrl(latitude, longitude);
-    final String stamp = PuckFormat.shortStamp(at);
-    final String acc = PuckFormat.accuracy(accuracy);
+    final String where;
+    if (latitude == null || longitude == null) {
+      where = 'Location unavailable';
+    } else {
+      final String acc = accuracy == null ? '' : ' (${PuckFormat.accuracy(accuracy)})';
+      where = '${PuckFormat.coordsDegrees(latitude, longitude)}$acc';
+    }
 
-    return 'SOS - I need help. Loc: $coords (+/-$acc) $map - $stamp';
+    final String map = latitude == null || longitude == null
+        ? ''
+        : '\n${PuckFormat.coordsUrl(latitude, longitude)}';
+
+    return 'I need help.\n$where$map\n${PuckFormat.stamp(at)}';
   }
 
   /// Opens the SMS composer. Returns false if nothing can handle the intent.

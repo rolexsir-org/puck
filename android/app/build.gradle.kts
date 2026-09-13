@@ -11,7 +11,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.puck.app"
+    namespace = "com.rolexsir.puck"
 
     // 35 is required for predictive-back and edge-to-edge on Android 15+.
     compileSdk = 35
@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.puck.app"
+        applicationId = "com.rolexsir.puck"
         minSdk = 24          // Android 7.0+. Covers ~98% of active devices.
         targetSdk = 35
         versionCode = flutter.versionCode
@@ -41,7 +41,7 @@ android {
     buildTypes {
         release {
             // Debug signing so `flutter run --release` works out of the box.
-            // Replace with a real keystore before shipping.
+            // Replace with a real keystore before shipping to a store.
             signingConfig = signingConfigs.getByName("debug")
 
             isMinifyEnabled = true

@@ -4,7 +4,6 @@ import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/format.dart';
 import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/data/models/context.dart';
-import 'package:puck/src/data/repositories/joke_repository.dart';
 import 'package:puck/src/features/puck/puck_controller.dart';
 import 'package:puck/src/features/puck/widgets/context_card.dart';
 import 'package:puck/src/features/puck/widgets/intent_bar.dart';
@@ -25,14 +24,16 @@ class PuckHome extends ConsumerStatefulWidget {
   ConsumerState<PuckHome> createState() => _PuckHomeState();
 }
 
-class _PuckHomeState extends ConsumerState<PuckHome> with TickerProviderStateMixin {
+class _PuckHomeState extends ConsumerState<PuckHome>
+    with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
     ref.read(puckControllerProvider).attach(this);
 
     // Warm the two things that cost something on first use: the secure-store
-    // read for the API key, and the joke asset decode.
+    // read for the API key, and the joke asset decode. Both finish long
+    // before a finger can double-tap.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await ref.read(settingsProvider).hydrate();
       await ref.read(jokeRepositoryProvider).load();
@@ -51,6 +52,8 @@ class _PuckHomeState extends ConsumerState<PuckHome> with TickerProviderStateMix
     final bool overlaysOpen = controller.intentBarOpen || controller.isSosActive;
 
     return Scaffold(
+      // The keyboard resize is the keyboard animation; the bar rides it.
+      resizeToAvoidBottomInset: true,
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final Size canvas = Size(constraints.maxWidth, constraints.maxHeight);
@@ -65,11 +68,14 @@ class _PuckHomeState extends ConsumerState<PuckHome> with TickerProviderStateMix
 
               _BubbleLayer(controller: controller),
 
-              if (!overlaysOpen) _Footer(controller: controller),
+              if (!overlaysOpen) const _Footer(),
 
               if (controller.intentBarOpen)
                 Positioned.fill(
-                  child: IntentBar(controller: controller),
+                  child: IntentBar(
+                    controller: controller,
+                    bubbleCenter: _bubbleCenter(controller, canvas),
+                  ),
                 ),
 
               if (controller.isSosActive)
@@ -82,25 +88,24 @@ class _PuckHomeState extends ConsumerState<PuckHome> with TickerProviderStateMix
       ),
     );
   }
+
+  static Offset _bubbleCenter(PuckController controller, Size canvas) {
+    final Offset pos = controller.bubblePosition.value;
+    return Offset(
+      PuckConstants.bubbleMargin + pos.dx + PuckConstants.bubbleSize / 2,
+      PuckConstants.bubbleMargin + pos.dy + PuckConstants.bubbleSize / 2,
+    );
+  }
 }
 
-/// Matte black with a barely-there lift at the top. Static: painted once,
-/// never rebuilt.
+/// Pure black. Painted once, never rebuilt.
 class _Backdrop extends StatelessWidget {
   const _Backdrop();
 
   @override
   Widget build(BuildContext context) {
     return const Positioned.fill(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment(0, -0.55),
-            radius: 1.25,
-            colors: <Color>[Color(0xFF16161B), PuckPalette.background],
-          ),
-        ),
-      ),
+      child: ColoredBox(color: PuckPalette.background),
     );
   }
 }
@@ -129,14 +134,15 @@ class _BubbleLayer extends StatelessWidget {
         onDragStart: controller.onDragStart,
         onDragUpdate: controller.onDragUpdate,
         onDragEnd: controller.onDragEnd,
+        onRelease: controller.onBubbleRelease,
       ),
     );
   }
 }
 
-/// Anchors the transient card to whichever side the bubble is parked on, and
-/// flips above/below depending on where it sits vertically -- so the card can
-/// never cover the thing you are about to touch again.
+/// Anchors the transient card 16px above the bubble, centred on the bubble
+/// and clamped to the screen edges -- so the card can never cover the thing
+/// you are about to touch again.
 class _PanelLayer extends StatelessWidget {
   const _PanelLayer({required this.controller, required this.canvas});
 
@@ -145,46 +151,50 @@ class _PanelLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double maxX = canvas.width -
-        PuckConstants.bubbleSize -
-        PuckConstants.bubbleMargin * 2;
-    final double maxY = canvas.height -
-        PuckConstants.bubbleSize -
-        PuckConstants.bubbleMargin * 2;
-
     return ValueListenableBuilder<Offset>(
       valueListenable: controller.bubblePosition,
       builder: (BuildContext context, Offset pos, Widget? _) {
-        final bool bubbleOnLeft = pos.dx < maxX / 2;
-        final bool bubbleLow = pos.dy > maxY * 0.5;
+        final double bubbleLeft = PuckConstants.bubbleMargin + pos.dx;
+        final double bubbleTop = PuckConstants.bubbleMargin + pos.dy;
+        final double bubbleCentreX = bubbleLeft + PuckConstants.bubbleSize / 2;
+
+        final double width = PuckFormat.clamp(
+          canvas.width - PuckConstants.screenMargin * 2,
+          120,
+          PuckConstants.cardMaxWidth,
+        );
+
+        double left = bubbleCentreX - width / 2;
+        left = PuckFormat.clamp(
+          left,
+          PuckConstants.screenMargin,
+          canvas.width - PuckConstants.screenMargin - width,
+        );
+
+        // Rare: the bubble parked near the top. Put the card below it
+        // instead of off-screen.
+        final bool placeBelow = bubbleTop < 240;
 
         return Positioned(
-          left: bubbleOnLeft ? PuckConstants.bubbleMargin : null,
-          right: bubbleOnLeft ? null : PuckConstants.bubbleMargin,
-          top: bubbleLow ? null : pos.dy + PuckConstants.bubbleMargin + PuckConstants.bubbleSize + 14,
-          bottom: bubbleLow ? canvas.height - PuckConstants.bubbleMargin - pos.dy + 14 : null,
+          left: left,
+          width: width,
+          top: placeBelow
+              ? bubbleTop + PuckConstants.bubbleSize + 16
+              : null,
+          bottom: placeBelow
+              ? null
+              : canvas.height - bubbleTop + 16,
           child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: PuckFormat.clamp(
-                canvas.width - PuckConstants.bubbleMargin * 2 - 8,
-                120,
-                PuckConstants.panelMaxWidth,
-              ),
-            ),
+            constraints: const BoxConstraints(maxWidth: PuckConstants.cardMaxWidth),
             child: AnimatedSwitcher(
-              duration: PuckConstants.panelDuration,
-              switchInCurve: PuckConstants.panelInCurve,
-              switchOutCurve: PuckConstants.panelOutCurve,
-              transitionBuilder: (Widget child, Animation<double> animation) {
+              duration: PuckConstants.cardOut,
+              switchInCurve: PuckConstants.moveCurve,
+              switchOutCurve: PuckConstants.moveCurve,
+              transitionBuilder:
+                  (Widget child, Animation<double> animation) {
                 return FadeTransition(
                   opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 0.06),
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: child,
-                  ),
+                  child: child,
                 );
               },
               child: _panelFor(controller),
@@ -205,15 +215,15 @@ class _PanelLayer extends StatelessWidget {
             ? _empty
             : ContextCard(key: const ValueKey<String>('context'), item: item);
       case PanelKind.joke:
-        final Joke? joke = c.joke;
+        final String? joke = c.joke;
         return joke == null
             ? _empty
-            : JokeCard(key: const ValueKey<String>('joke'), joke: joke);
+            : JokeCard(key: const ValueKey<String>('joke'), text: joke);
       case PanelKind.answer:
-        // Answers render inside the IntentBar, which reads `controller.intent`
-        // directly; the controller never assigns this panel. Returning the
-        // empty slot keeps the switch exhaustive without inventing a second
-        // renderer for the same content.
+        // Answers render inside the IntentBar, which reads
+        // `controller.intent` directly; the controller never assigns this
+        // panel. Returning the empty slot keeps the switch exhaustive
+        // without inventing a second renderer for the same content.
         return _empty;
       case PanelKind.none:
         return _empty;
@@ -221,85 +231,32 @@ class _PanelLayer extends StatelessWidget {
   }
 }
 
-/// Settings link, and the one-time gesture legend.
-///
-/// A four-gesture interface with no visible chrome is undiscoverable, so Puck
-/// breaks its own rule exactly once, on first run.
-class _Footer extends ConsumerWidget {
-  const _Footer({required this.controller});
-
-  final PuckController controller;
+/// The one affordance Puck allows itself: a quiet way into settings.
+class _Footer extends StatelessWidget {
+  const _Footer();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bool introSeen = ref.watch(settingsProvider).introSeen;
-    final bool showIntro =
-        !introSeen && controller.panel == PanelKind.none && !controller.intentBarOpen;
-
+  Widget build(BuildContext context) {
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
       child: SafeArea(
         top: false,
-        minimum: const EdgeInsets.only(bottom: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (showIntro) ...<Widget>[
-              const Padding(
-                padding: EdgeInsets.fromLTRB(28, 0, 28, 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    _LegendLine(label: 'TAP', text: 'one useful thing'),
-                    SizedBox(height: 7),
-                    _LegendLine(label: 'DOUBLE TAP', text: 'a small joke'),
-                    SizedBox(height: 7),
-                    _LegendLine(label: 'HOLD 3s', text: 'SOS'),
-                    SizedBox(height: 7),
-                    _LegendLine(label: 'SWIPE UP', text: 'ask anything'),
-                  ],
-                ),
-              ),
-            ],
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(context).pushNamed('/settings'),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                child: Text(
-                  'SETTINGS',
-                  style: PuckType.label.copyWith(
-                    color: PuckPalette.textLow.withValues(alpha: 0.65),
-                  ),
-                ),
-              ),
+        minimum: const EdgeInsets.only(bottom: 6),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(context).pushNamed('/settings'),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: Text(
+              'Settings',
+              textAlign: TextAlign.center,
+              style: PuckType.label.copyWith(color: PuckPalette.textMuted),
             ),
-          ],
+          ),
         ),
       ),
-    );
-  }
-}
-
-class _LegendLine extends StatelessWidget {
-  const _LegendLine({required this.label, required this.text});
-
-  final String label;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        SizedBox(
-          width: 74,
-          child: Text(label, style: PuckType.label),
-        ),
-        Text(text, style: PuckType.detail.copyWith(fontSize: 12.5)),
-      ],
     );
   }
 }

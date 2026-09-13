@@ -2,12 +2,17 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:device_calendar/device_calendar.dart' as dc;
+import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/data/models/context.dart';
 
 /// Reads the next thing on the user's calendar.
 ///
 /// Permission is requested lazily, on the first tap that needs it -- Puck
 /// launches into a black screen and asks for nothing.
+///
+/// The winning event is cached for [PuckConstants.snapshotCacheTtl]: calendar
+/// state changes on the scale of minutes, not seconds, and the single tap
+/// must never wait on a plugin round-trip twice in a row.
 class CalendarService {
   CalendarService({dc.DeviceCalendarPlugin? plugin})
       : _plugin = plugin ?? dc.DeviceCalendarPlugin();
@@ -15,6 +20,9 @@ class CalendarService {
   final dc.DeviceCalendarPlugin _plugin;
 
   bool? _permissionGranted;
+
+  CalendarEvent? _cache;
+  DateTime _cacheAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<bool> _ensurePermission() async {
     if (_permissionGranted != null) return _permissionGranted!;
@@ -37,13 +45,22 @@ class CalendarService {
   Future<CalendarEvent?> nextEvent({
     Duration lookahead = const Duration(hours: 16),
   }) async {
+    final DateTime now = DateTime.now();
+    final CalendarEvent? cached = _cache;
+    final bool cacheLive = cached != null &&
+        now.difference(_cacheAt) < PuckConstants.snapshotCacheTtl &&
+        (cached.end == null || cached.end!.isAfter(now)) &&
+        cached.start.isBefore(now.add(lookahead));
+    if (cacheLive) {
+      return cached;
+    }
+
     if (!await _ensurePermission()) return null;
 
     try {
-      final DateTime now = DateTime.now();
       final dc.Result<UnmodifiableListView<dc.Calendar>> calendars =
           await _plugin.retrieveCalendars();
-      if (!calendars.isSuccess) return null;
+      if (!calendars.isSuccess) return _cached(null, now);
 
       DateTime? bestStart;
       CalendarEvent? best;
@@ -86,10 +103,16 @@ class CalendarService {
         }
       }
 
-      return best;
+      return _cached(best, now);
     } catch (_) {
-      return null;
+      return _cache;
     }
+  }
+
+  CalendarEvent? _cached(CalendarEvent? value, DateTime at) {
+    _cache = value;
+    _cacheAt = at;
+    return value;
   }
 
   /// Cancelled events and transparent ("free") entries are not commitments.

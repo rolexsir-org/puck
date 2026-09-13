@@ -51,36 +51,49 @@ class IntentView {
       );
 }
 
-enum SosPhase { locating, ready, sending }
+/// The SOS sheet has exactly two states: the ring is counting down, or the
+/// countdown completed and the sheet is a status light.
+enum SosPhase { counting, active }
 
 class SosView {
   const SosView({
     required this.phase,
     required this.status,
     required this.torchOn,
+    required this.secondsLeft,
     this.body,
     this.position,
+    this.hasContact = false,
   });
 
   final SosPhase phase;
   final String status;
   final bool torchOn;
+
+  /// Whole seconds left in the countdown. Drives the big number.
+  final int secondsLeft;
+
   final String? body;
   final Position? position;
+  final bool hasContact;
 
   SosView copyWith({
     SosPhase? phase,
     String? status,
     bool? torchOn,
+    int? secondsLeft,
     String? body,
     Position? position,
+    bool? hasContact,
   }) =>
       SosView(
         phase: phase ?? this.phase,
         status: status ?? this.status,
         torchOn: torchOn ?? this.torchOn,
+        secondsLeft: secondsLeft ?? this.secondsLeft,
         body: body ?? this.body,
         position: position ?? this.position,
+        hasContact: hasContact ?? this.hasContact,
       );
 }
 
@@ -101,9 +114,10 @@ class PuckController extends ChangeNotifier {
   bool _dragging = false;
   SpringOffset2D? _spring;
 
-  /// Top-left of the bubble *within the padded area*. Margins are added by the
-  /// view at paint time, so this stays in [0, max].
-  final ValueNotifier<Offset> bubblePosition = ValueNotifier<Offset>(Offset.zero);
+  /// Top-left of the bubble *within the padded area*. Margins are added by
+  /// the view at paint time, so this stays in [0, max].
+  final ValueNotifier<Offset> bubblePosition =
+      ValueNotifier<Offset>(Offset.zero);
 
   double get _maxX => _canvas.width <= 0
       ? 0
@@ -136,8 +150,9 @@ class PuckController extends ChangeNotifier {
     _spring = null;
   }
 
-  /// Called from LayoutBuilder. First layout parks the bubble at thumb height
-  /// on the right edge; later layouts (rotation) re-clamp into view.
+  /// Called from LayoutBuilder. First layout parks the bubble at the
+  /// bottom-right edge -- its home, and the first thing the eye should find.
+  /// Later layouts re-clamp into view.
   void updateCanvas(Size size) {
     if (_canvas == size) return;
     final bool firstLayout = _canvas == Size.zero;
@@ -146,7 +161,7 @@ class PuckController extends ChangeNotifier {
     if (firstLayout) {
       // Safe to set synchronously: the bubble's listener does not exist until
       // this frame's tree is built, so nothing can be marked dirty mid-build.
-      final Offset home = Offset(_maxX, _maxY * 0.68);
+      final Offset home = Offset(_maxX, _maxY);
       bubblePosition.value = home;
       _spring?.jumpTo(home);
       return;
@@ -170,6 +185,9 @@ class PuckController extends ChangeNotifier {
   // -- Drag -----------------------------------------------------------------
 
   void onDragStart(Offset globalPosition) {
+    // Overlays own the surface while they are open; a new press on the
+    // bubble's old spot must not start a drag underneath them.
+    if (_intentBarOpen || _sos != null) return;
     _dragging = true;
     _spring?.jumpTo(bubblePosition.value);
     _cancelDismiss();
@@ -207,18 +225,28 @@ class PuckController extends ChangeNotifier {
     unawaited(_read<HapticsService>(hapticsProvider).tick());
   }
 
+  /// The finger came off the bubble. If SOS is counting down, that lift is
+  /// the pocket saying "this was not deliberate" -- disarm, and remember it.
+  void onBubbleRelease() {
+    final SosView? sos = _sos;
+    if (sos == null || sos.phase != SosPhase.counting) return;
+    unawaited(_ref.read(settingsProvider).incrementReleaseCancels());
+    unawaited(_read<HapticsService>(hapticsProvider).sosCancel());
+    unawaited(_closeSos());
+  }
+
   // -- Panels ---------------------------------------------------------------
 
   PanelKind _panel = PanelKind.none;
   ContextItem? _contextItem;
-  Joke? _joke;
+  String? _joke;
   IntentView? _intent;
   SosView? _sos;
   bool _intentBarOpen = false;
 
   PanelKind get panel => _panel;
   ContextItem? get contextItem => _contextItem;
-  Joke? get joke => _joke;
+  String? get joke => _joke;
   IntentView? get intent => _intent;
   SosView? get sos => _sos;
   bool get intentBarOpen => _intentBarOpen;
@@ -226,6 +254,7 @@ class PuckController extends ChangeNotifier {
 
   Timer? _dismissTimer;
   Timer? _sosRunawayTimer;
+  Timer? _sosCountdownTimer;
   StreamSubscription<String>? _intentSub;
 
   DateTime? _dismissDeadline;
@@ -263,34 +292,18 @@ class PuckController extends ChangeNotifier {
     _scheduleDismiss(minimum);
   }
 
-  /// Ring buffer of recently shown lines, fed to GIGGLE as an exclusion list.
-  static const int _recentJokesKept = 8;
-  final List<String> _recentJokes = <String>[];
-
-  List<String> get recentJokes => List<String>.unmodifiable(_recentJokes);
-
-  void _rememberJoke(String text) {
-    _recentJokes.remove(text);
-    _recentJokes.add(text);
-    while (_recentJokes.length > _recentJokesKept) {
-      _recentJokes.removeAt(0);
-    }
-  }
-
   // -- Gesture dispatch -----------------------------------------------------
 
   void handleGesture(PuckGestureKind kind) {
-    // The gesture legend is a one-time affordance; touching the bubble at all
-    // means it has done its job. Safe to notify here -- gesture callbacks run
-    // outside the build phase.
-    final SettingsRepository settings = _read<SettingsRepository>(settingsProvider);
-    if (!settings.introSeen) unawaited(settings.dismissIntro());
-
+    // Overlays own the surface while they are open. The one exception is the
+    // pointer that armed SOS: its lift is the pocket-release signal, which is
+    // handled in [onBubbleRelease], not here.
+    if (_intentBarOpen || _sos != null) return;
     switch (kind) {
       case PuckGestureKind.tap:
         unawaited(_showContext());
       case PuckGestureKind.doubleTap:
-        unawaited(_showJoke());
+        _showJoke();
       case PuckGestureKind.longPress:
         unawaited(_armSos());
       case PuckGestureKind.swipeUp:
@@ -298,30 +311,27 @@ class PuckController extends ChangeNotifier {
     }
   }
 
-  /// Behaviour 1 -- contextual help.
+  /// Behaviour 1 -- the one thing worth knowing.
   ///
-  /// Two-phase on purpose. Ranking needs a calendar read and possibly a
-  /// network round-trip, and a tap that shows nothing for 400ms feels broken.
-  /// So we paint a neutral card immediately and refine it when the snapshot
-  /// lands. The panel key does not change, so the swap is a text update in
-  /// place, not a re-animation.
+  /// Two-phase on purpose, and the phases are ordered by what the user is
+  /// promised: the first paint is the *guaranteed* answer -- the time and a
+  /// line to go with it -- computed with zero awaits, well inside the 100ms
+  /// budget. The snapshot then either upgrades the card with something more
+  /// urgent or leaves the time alone. The panel key does not change, so the
+  /// upgrade is a text update in place, not a re-animation.
   Future<void> _showContext() async {
     unawaited(_read<HapticsService>(hapticsProvider).light());
 
     _panel = PanelKind.context;
     _joke = null;
     _intent = null;
-    _contextItem = const ContextItem(
-      kind: ContextKind.time,
-      label: 'PUCK',
-      headline: 'Checking…',
-    );
+    _contextItem = ContextRanker.timeOfDay(DateTime.now());
     _scheduleDismiss(PuckConstants.contextDismiss);
     notifyListeners();
 
     final ContextSnapshot snapshot =
         await _read<ContextRepository>(contextRepositoryProvider).snapshot();
-    if (!hasListeners) return;
+    if (!hasListeners || _panel != PanelKind.context) return;
 
     // Phase 2: the deterministic line. Offline, instant, always available.
     final ContextItem ranked = ContextRanker.rank(snapshot);
@@ -335,7 +345,9 @@ class PuckController extends ChangeNotifier {
     // deterministic line simply stays on screen.
     final String? sharpened = await _read<IntentRouter>(intentRouterProvider)
         .sharpenContext(snapshot: snapshot, localLine: ranked);
-    if (sharpened == null || !hasListeners) return;
+    if (sharpened == null || !hasListeners || _panel != PanelKind.context) {
+      return;
+    }
 
     _contextItem = ContextItem(
       kind: ranked.kind,
@@ -348,7 +360,8 @@ class PuckController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Behaviour 2 -- the daily giggle.
+  /// Behaviour 2 -- the double-tap. The shuffle bag is the whole feature:
+  /// instant, offline, and it never repeats until it has to.
   Future<void> _showJoke() async {
     unawaited(_read<HapticsService>(hapticsProvider).light());
 
@@ -356,59 +369,45 @@ class PuckController extends ChangeNotifier {
     await repo.load();
     if (!hasListeners) return;
 
-    final Joke local = repo.next();
-    _rememberJoke(local.text);
-    _joke = local;
+    final String? line = repo.next();
+    if (line == null) return;
+
+    _joke = line;
     _contextItem = null;
     _intent = null;
     _panel = PanelKind.joke;
     _scheduleDismiss(PuckConstants.jokeDismiss);
     notifyListeners();
-
-    // The bag is the default answer. Only if the user opted in, and only if
-    // a key exists, do we give the model a shot at a fresher line.
-    final SettingsRepository settings = _read<SettingsRepository>(settingsProvider);
-    final IntentRouter router = _read<IntentRouter>(intentRouterProvider);
-    if (!settings.giggleFromModel || !router.isOnlineCapable) return;
-
-    final String? remote = await router.giggle(recentJokes);
-    if (remote == null || !hasListeners) return;
-
-    _joke = Joke(text: remote, kind: local.kind);
-    _rememberJoke(remote);
-    _ensureRemainingDismiss(PuckConstants.minReadTime);
-    notifyListeners();
   }
 
   /// Behaviour 3 -- SOS.
   ///
-  /// Runs even with no contact configured: the torch and haptics are useful
-  /// on their own, and the sheet then tells you what is missing.
+  /// A three-second hold arms it; the sheet counts down for three more. The
+  /// countdown is the pocket filter: a phone jostled in a bag lifts the
+  /// finger long before three seconds are up, and the lift disarms
+  /// everything. Holding through the countdown is a deliberate act.
+  ///
+  /// GPS acquisition starts the moment the sheet appears, in parallel with
+  /// the ring -- by the time the countdown ends, the fix has usually landed.
   Future<void> _armSos() async {
     if (_sos != null) return; // already armed
 
     final SettingsRepository settings = _read<SettingsRepository>(settingsProvider);
     final HapticsService haptics = _read<HapticsService>(hapticsProvider);
-    final TorchService torch = _read<TorchService>(torchServiceProvider);
 
+    unawaited(haptics.heavy());
     unawaited(haptics.sosAlarm());
 
-    bool torchOn = false;
-    if (settings.torchEnabled) {
-      if (settings.strobeEnabled) {
-        unawaited(torch.startSos());
-      } else {
-        unawaited(torch.enable());
-      }
-      torchOn = true;
-    }
-
     _sos = SosView(
-      phase: SosPhase.locating,
-      status: 'Getting your location…',
-      torchOn: torchOn,
+      phase: SosPhase.counting,
+      status: 'Getting your location',
+      torchOn: false,
+      secondsLeft: PuckConstants.sosCountdown.inSeconds,
+      body: null,
+      hasContact: settings.hasEmergencyContact,
     );
     _panel = PanelKind.none;
+    _intentBarOpen = false;
     _cancelDismiss();
     notifyListeners();
 
@@ -422,51 +421,77 @@ class PuckController extends ChangeNotifier {
       notifyListeners();
     });
 
+    // The countdown: one tick per second, then fire.
+    _sosCountdownTimer?.cancel();
+    _sosCountdownTimer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
+      final SosView? sos = _sos;
+      if (sos == null || sos.phase != SosPhase.counting) {
+        t.cancel();
+        return;
+      }
+      final int left = sos.secondsLeft - 1;
+      if (left <= 0) {
+        t.cancel();
+        _fireSos();
+        return;
+      }
+      _sos = sos.copyWith(secondsLeft: left);
+      unawaited(_read<HapticsService>(hapticsProvider).tick());
+      notifyListeners();
+    });
+
     final Position? position =
         await _read<LocationService>(locationServiceProvider).current();
     if (!hasListeners || _sos == null) return;
 
     final DateTime now = DateTime.now();
-    final String body = position == null
-        ? 'SOS - I need help. Location unavailable. ${PuckFormat.shortStamp(now)}'
-        : MessagingService.buildSosBody(
-            latitude: position.latitude,
-            longitude: position.longitude,
-            accuracy: position.accuracy,
-            at: now,
-          );
+    final String body = MessagingService.buildSosBody(
+      latitude: position?.latitude,
+      longitude: position?.longitude,
+      accuracy: position?.accuracy,
+      at: now,
+    );
 
     _sos = _sos!.copyWith(
-      phase: SosPhase.ready,
       status: position == null
-          ? 'No GPS fix — you can still send without coordinates'
-          : 'Ready to send',
+          ? 'No GPS fix yet -- the message will say so'
+          : 'Location found',
       body: body,
       position: position,
     );
     notifyListeners();
   }
 
-  /// Hands the pre-filled message to the native SMS composer.
-  Future<bool> sendSos() async {
-    final SosView? view = _sos;
-    final SettingsRepository settings = _read<SettingsRepository>(settingsProvider);
-    if (view == null || !settings.hasEmergencyContact) return false;
+  /// The countdown ran out with the finger still down. Torch, message,
+  /// status light.
+  Future<void> _fireSos() async {
+    final SosView? sos = _sos;
+    if (sos == null || sos.phase != SosPhase.counting) return;
 
-    _sos = view.copyWith(phase: SosPhase.sending);
+    _sosCountdownTimer?.cancel();
+    _sosCountdownTimer = null;
+
+    final TorchService torch = _read<TorchService>(torchServiceProvider);
+    unawaited(torch.startSos());
+
+    _sos = sos.copyWith(
+      phase: SosPhase.active,
+      torchOn: true,
+      status: sos.position == null
+          ? 'Finding your location'
+          : 'Location found',
+    );
     notifyListeners();
 
-    await _stopTorch();
-    unawaited(_read<HapticsService>(hapticsProvider).tick());
-
-    final bool opened = await _read<MessagingService>(messagingServiceProvider)
-        .openSms(recipient: settings.contactPhone, body: view.body ?? '');
-
-    await _closeSos();
-    return opened;
+    if (sos.hasContact && sos.body != null) {
+      await _read<MessagingService>(messagingServiceProvider).openSms(
+        recipient: _read<SettingsRepository>(settingsProvider).contactPhone,
+        body: sos.body!,
+      );
+    }
   }
 
-  /// "I'm safe."
+  /// "I'm safe." Both exits -- the button and the lifted finger -- land here.
   Future<void> cancelSos() async {
     unawaited(_read<HapticsService>(hapticsProvider).sosCancel());
     await _closeSos();
@@ -475,6 +500,8 @@ class PuckController extends ChangeNotifier {
   Future<void> _closeSos() async {
     _sosRunawayTimer?.cancel();
     _sosRunawayTimer = null;
+    _sosCountdownTimer?.cancel();
+    _sosCountdownTimer = null;
     _sos = null;
     await _stopTorch();
     notifyListeners();
@@ -510,6 +537,8 @@ class PuckController extends ChangeNotifier {
   void submitQuery(String raw) {
     final String query = raw.trim();
     if (query.isEmpty) return;
+
+    unawaited(_read<HapticsService>(hapticsProvider).tick());
 
     _intent = IntentView(query: query, answer: '', streaming: true);
     _cancelDismiss();
@@ -556,6 +585,7 @@ class PuckController extends ChangeNotifier {
     _intentSub?.cancel();
     _dismissTimer?.cancel();
     _sosRunawayTimer?.cancel();
+    _sosCountdownTimer?.cancel();
     _spring?.dispose();
     bubblePosition.dispose();
     super.dispose();

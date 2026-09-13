@@ -66,11 +66,21 @@
 	<string>Dark</string>
 
 	<!--
-	  Set after a real launch screen / storyboard exists. Without a storyboard
-	  this key causes a black flash on launch, so it is intentionally absent
-	  until you add one.
+	  Launch screen: an empty black field. No logo, no name, no spinner. The
+	  colour comes from the LaunchBackground colour in Assets.xcassets, and
+	  the first Flutter frame is the same black, so there is no flash.
 	-->
-	<!-- <key>UILaunchStoryboardName</key><string>LaunchScreen</string> -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+
+	<!-- Light content on the black status bar, in every state. -->
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
 
 	<key>CFBundleDisplayName</key>
 	<string>Puck</string>

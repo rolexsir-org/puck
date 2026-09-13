@@ -5,8 +5,8 @@ import 'package:puck/src/data/llm/prompt.dart';
 /// The LLM seam.
 ///
 /// Puck talks to exactly one thing: a request in, a stream of text out.
-/// Swapping Groq for OpenAI, Gemini, a local model, or a mock in tests means
-/// implementing this and changing one line in `providers.dart`.
+/// Swapping Groq for OpenAI, Gemini, or a local model means implementing this
+/// and changing one line in `providers.dart`.
 ///
 /// Note the argument is a whole [LlmRequest], not a String. Sampling
 /// parameters and stop sequences are per-mode decisions (see [PuckPrompt]),

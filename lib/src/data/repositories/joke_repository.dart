@@ -5,22 +5,6 @@ import 'dart:math' as math;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:puck/src/data/repositories/settings_repository.dart';
 
-enum JokeKind { joke, quote }
-
-class Joke {
-  const Joke({required this.text, required this.kind});
-
-  final String text;
-  final JokeKind kind;
-
-  factory Joke.fromJson(Map<String, dynamic> json) => Joke(
-        text: (json['text'] as String? ?? '').trim(),
-        kind: (json['kind'] as String?) == 'quote'
-            ? JokeKind.quote
-            : JokeKind.joke,
-      );
-}
-
 /// Serves jokes from a shuffle bag rather than `random()`.
 ///
 /// Plain randomness gives users the same line twice in a row about 1% of the
@@ -35,7 +19,7 @@ class JokeRepository {
   final SettingsRepository _settings;
   final math.Random _rng;
 
-  List<Joke> _jokes = const <Joke>[];
+  List<String> _jokes = const <String>[];
   List<int> _bag = const <int>[];
   int _cursor = 0;
 
@@ -48,12 +32,14 @@ class JokeRepository {
       final String raw = await rootBundle.loadString(_asset);
       final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
       _jokes = decoded
-          .whereType<Map<String, dynamic>>()
-          .map(Joke.fromJson)
-          .where((Joke j) => j.text.isNotEmpty)
+          .map((dynamic e) => (e as String? ?? '').trim())
+          .where((String s) => s.isNotEmpty)
           .toList(growable: false);
     } catch (_) {
-      _jokes = _builtInFallback;
+      // The asset ships inside the binary; this path exists so a corrupted
+      // build degrades to "no joke" instead of a red screen. next() returns
+      // null and the double-tap simply shows nothing.
+      _jokes = const <String>[];
     }
 
     _bag = _settings.jokeOrder ?? _freshBag();
@@ -67,17 +53,18 @@ class JokeRepository {
     return bag;
   }
 
-  Joke next() {
-    if (_jokes.isEmpty) {
-      return const Joke(text: 'Out of jokes. Imagine one instead.', kind: JokeKind.joke);
-    }
+  /// The next line, or null if the bag could not be loaded. Null is rare
+  /// enough (it means a broken build) that showing nothing beats showing a
+  /// fabricated excuse.
+  String? next() {
+    if (_jokes.isEmpty) return null;
 
     if (_cursor >= _bag.length) {
       _bag = _freshBag();
       _cursor = 0;
     }
 
-    final Joke joke = _jokes[_bag[_cursor]];
+    final String joke = _jokes[_bag[_cursor]];
     _cursor++;
 
     // Fire-and-forget persistence; a lost cursor costs nothing.
@@ -86,9 +73,4 @@ class JokeRepository {
 
     return joke;
   }
-
-  static const List<Joke> _builtInFallback = <Joke>[
-    Joke(text: 'My humour module failed to load. The irony is noted.', kind: JokeKind.joke),
-    Joke(text: 'Do one thing every day that scares you. Mine is the electricity bill.', kind: JokeKind.quote),
-  ];
 }
