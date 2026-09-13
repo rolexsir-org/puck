@@ -7,10 +7,10 @@ import 'package:puck/src/data/models/context.dart';
 
 /// Decides where a query goes: the device, or the cloud.
 ///
-/// Order matters for perceived speed. Deterministic intents (coin, dice, sums)
-/// resolve in microseconds and never touch the network -- an LLM round-trip
-/// for "flip a coin" is both slower and worse, since a model will happily
-/// answer "Heads" with a bias it cannot perceive.
+/// Order matters for perceived speed. Deterministic intents (coin, dice,
+/// sums) resolve in microseconds and never touch the network -- an LLM
+/// round-trip for "flip a coin" is both slower and worse, since a model will
+/// happily answer "Heads" with a bias it cannot perceive.
 ///
 /// With no key configured we skip the network entirely rather than showing a
 /// spinner that is guaranteed to fail.
@@ -27,8 +27,6 @@ class IntentRouter {
   /// allowed to delay or degrade it.
   static const Duration polishTimeout = Duration(milliseconds: 900);
 
-  static const Duration giggleTimeout = Duration(milliseconds: 1200);
-
   bool get isOnlineCapable => _llm.isConfigured;
 
   // -- INTENT (swipe up) ----------------------------------------------------
@@ -36,9 +34,9 @@ class IntentRouter {
   Stream<String> resolve(String query) =>
       resolveRequest(LlmRequest(mode: PuckMode.intent, query: query));
 
-  /// The streaming path. CONTEXT and GIGGLE go through the bounded helpers
-  /// below instead, because they are upgrades to something already on screen
-  /// rather than the answer itself.
+  /// The streaming path. CONTEXT goes through the bounded helper below,
+  /// because it is an upgrade to something already on screen rather than the
+  /// answer itself.
   Stream<String> resolveRequest(LlmRequest request) async* {
     if (request.mode == PuckMode.intent) {
       final String? instant = _local.tryResolve(request.query);
@@ -49,23 +47,20 @@ class IntentRouter {
     }
 
     if (!_llm.isConfigured) {
-      yield _local.shrug();
+      yield _local.offline();
       return;
     }
 
     try {
       yield* _llm.complete(request);
     } on LlmException catch (e) {
-      yield e.retryable
-          ? 'Puck could not reach the model. Try again.'
-          : e.message;
+      // Optional feature, one honest line. A 401 reads as offline to the
+      // person holding the phone; the fix is the same either way.
+      yield e.retryable ? LocalIntentResolver.offlineLine : e.message;
     } catch (_) {
-      yield 'Something broke on the way to the model.';
+      yield LocalIntentResolver.offlineLine;
     }
   }
-
-  Future<String> resolveOnce(String query) =>
-      resolve(query).fold<String>('', (String acc, String t) => acc + t);
 
   // -- CONTEXT (single tap, hybrid) -----------------------------------------
 
@@ -88,17 +83,6 @@ class IntentRouter {
     );
 
     return _collect(request, polishTimeout);
-  }
-
-  // -- GIGGLE (double tap, optional) ----------------------------------------
-
-  Future<String?> giggle(List<String> recentJokes) async {
-    if (!_llm.isConfigured) return null;
-    final LlmRequest request = LlmRequest(
-      mode: PuckMode.giggle,
-      recentJokes: recentJokes,
-    );
-    return _collect(request, giggleTimeout);
   }
 
   /// Drains a stream under a deadline, cancelling the underlying

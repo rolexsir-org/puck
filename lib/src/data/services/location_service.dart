@@ -9,7 +9,15 @@ import 'package:puck/src/core/constants.dart';
 ///   * [lastKnown]  -- free. Cached fix, no radio wake. Used for weather.
 ///   * [current]    -- expensive. Fresh high-accuracy fix. Used only by SOS,
 ///                     where a stale position is worse than no position.
+///
+/// [current] result is cached for the rest of the session: the weather tap
+/// asks once, SOS refreshes it, and nothing wakes the GPS radio twice for
+/// the same answer.
 class LocationService {
+  /// The last fresh fix this session, if any. Weather reads this directly so
+  /// a single session never requests the radio twice.
+  Position? sessionFix;
+
   Future<bool> get serviceEnabled => Geolocator.isLocationServiceEnabled();
 
   Future<LocationPermission> get permission => Geolocator.checkPermission();
@@ -23,6 +31,7 @@ class LocationService {
   /// Best cached position. May be null, may be old -- callers must tolerate
   /// both. Never throws.
   Future<Position?> lastKnown() async {
+    if (sessionFix != null) return sessionFix;
     try {
       return await Geolocator.getLastKnownPosition();
     } catch (_) {
@@ -32,8 +41,8 @@ class LocationService {
 
   /// A fresh fix, or null if the user has not granted access.
   ///
-  /// Falls back to [lastKnown] on timeout: in an emergency a position from
-  /// twenty minutes ago is better than a spinner.
+  /// Falls back to the session fix / last known on timeout: in an emergency a
+  /// position from twenty minutes ago is better than a spinner.
   Future<Position?> current({
     Duration timeout = PuckConstants.locationTimeout,
   }) async {
@@ -49,15 +58,17 @@ class LocationService {
         return null;
       }
 
-      return await Geolocator.getCurrentPosition(
+      final Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
         // Plugin-level guard, on top of the Dart-side timeout below. It
         // throws on expiry rather than supplying a value, so the catch below
-        // is the single fallback path -- `lastKnown` returns Position?, which
-        // `Future<Position>.timeout` cannot accept as its `onTimeout`.
+        // is the single fallback path.
       ).timeout(timeout);
+
+      sessionFix = position;
+      return position;
     } on TimeoutException catch (_) {
       return lastKnown();
     } catch (_) {

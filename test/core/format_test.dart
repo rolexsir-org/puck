@@ -61,22 +61,28 @@ void main() {
     });
   });
 
-  group('coordinates and accuracy', () {
-    test('coords are fixed to 5dp', () {
-      expect(PuckFormat.coords(34.08361, 74.79737), '34.08361, 74.79737');
+  group('the emergency SMS body parts', () {
+    test('coordinates read like a person reads them out loud', () {
+      expect(PuckFormat.coordsDegrees(34.052234, -118.243685), '34.0522°N, 118.2437°W');
+      expect(PuckFormat.coordsDegrees(-33.8674, 151.2078), '33.8674°S, 151.2078°E');
     });
 
-    test('coordsUrl has no space after the comma', () {
+    test('the map link is short and schemeless', () {
       expect(
-        PuckFormat.coordsUrl(34.08361, 74.79737),
-        'https://maps.google.com/?q=34.08361,74.79737',
+        PuckFormat.coordsUrl(34.052234, -118.243685),
+        'maps.google.com/?q=34.0522,-118.2437',
       );
     });
 
-    test('accuracy switches to km over 1000m and hides negatives', () {
-      expect(PuckFormat.accuracy(-1), '--');
-      expect(PuckFormat.accuracy(12.4), '12m');
-      expect(PuckFormat.accuracy(1500), '1.5km');
+    test('accuracy is a delta, not a number', () {
+      expect(PuckFormat.accuracy(-1), '');
+      expect(PuckFormat.accuracy(12.4), '±12m');
+      expect(PuckFormat.accuracy(1500), '±1.5km');
+    });
+
+    test('the stamp reads like a text message, not a log line', () {
+      // Wednesday 15 Jan 2026, 3:14 PM.
+      expect(PuckFormat.stamp(DateTime(2026, 1, 15, 15, 14)), '3:14 PM · Wed Jan 15');
     });
   });
 

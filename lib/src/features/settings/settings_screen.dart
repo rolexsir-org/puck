@@ -1,16 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:puck/src/core/theme.dart';
-import 'package:puck/src/data/llm/groq_provider.dart';
 import 'package:puck/src/data/repositories/settings_repository.dart';
 import 'package:puck/src/providers.dart';
 
-/// The only screen in Puck that is not the bubble.
+/// The one screen that is not the bubble.
 ///
-/// Deliberately kept to four decisions: who gets the SOS, which key pays for
-/// the thinking, and whether the phone should shake and shine.
+/// Two decisions live here: who the SOS message goes to, and the key that
+/// pays for the answers. Everything else in Puck has a correct default and
+/// deliberately no UI.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -19,154 +20,168 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  late final TextEditingController _name;
-  late final TextEditingController _phone;
+  late final TextEditingController _contact;
   late final TextEditingController _key;
-  bool _obscureKey = true;
+  final FocusNode _contactFocus = FocusNode();
+  final FocusNode _keyFocus = FocusNode();
 
   @override
   void initState() {
     super.initState();
     final SettingsRepository s = ref.read(settingsProvider);
-    _name = TextEditingController(text: s.contactName);
-    _phone = TextEditingController(text: s.contactPhone);
+    _contact = TextEditingController(text: s.contactPhone);
     _key = TextEditingController(text: s.groqApiKey ?? '');
+
+    // Saved on leave, not on a button. A settings screen that makes you
+    // press "save" is a form; this is a place you visit once.
+    _contactFocus.addListener(_saveContactOnBlur);
+    _keyFocus.addListener(_saveKeyOnBlur);
+  }
+
+  void _saveContactOnBlur() {
+    if (_contactFocus.hasFocus) return;
+    unawaited(ref.read(settingsProvider).setContactPhone(_contact.text));
+  }
+
+  void _saveKeyOnBlur() {
+    if (_keyFocus.hasFocus) return;
+    unawaited(ref.read(settingsProvider).setGroqApiKey(_key.text));
   }
 
   @override
   void dispose() {
-    _name.dispose();
-    _phone.dispose();
+    _contactFocus.removeListener(_saveContactOnBlur);
+    _keyFocus.removeListener(_saveKeyOnBlur);
+    _contact.dispose();
     _key.dispose();
+    _contactFocus.dispose();
+    _keyFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _pasteKey() async {
+    final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+    final String text = data?.text?.trim() ?? '';
+    if (text.isEmpty || !mounted) return;
+    _key.text = text;
+    _key.selection = TextSelection.collapsed(offset: text.length);
+    await ref.read(settingsProvider).setGroqApiKey(text);
   }
 
   @override
   Widget build(BuildContext context) {
     final SettingsRepository settings = ref.watch(settingsProvider);
+    final int cancels = settings.releaseCancels;
 
     return Scaffold(
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: <Widget>[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 20, 4),
-                child: Row(
-                  children: <Widget>[
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-                      color: PuckPalette.textMid,
-                      splashRadius: 20,
-                    ),
-                    const Text('SETTINGS', style: PuckType.label),
-                  ],
-                ),
-              ),
-            ),
-
-            // -- Emergency --------------------------------------------------
-            _Section(
-              title: 'EMERGENCY',
-              children: <Widget>[
-                _Field(
-                  controller: _name,
-                  label: 'Contact name',
-                  hint: 'Mum',
-                  textCapitalization: TextCapitalization.words,
-                  onSubmitted: (String v) =>
-                      unawaited(settings.setEmergencyContact(name: v)),
-                ),
-                _Field(
-                  controller: _phone,
-                  label: 'Contact number',
-                  hint: '+91 98…',
-                  keyboardType: TextInputType.phone,
-                  onSubmitted: (String v) =>
-                      unawaited(settings.setEmergencyContact(phone: v)),
-                ),
-                const _Note(
-                  'Hold the bubble for three seconds to arm SOS. Puck opens your '
-                  'SMS app with your location pre-filled — it never sends '
-                  'anything itself, so an accidental hold stays recoverable.',
-                ),
-              ],
-            ),
-
-            // -- Intelligence -----------------------------------------------
-            _Section(
-              title: 'INTELLIGENCE',
-              children: <Widget>[
-                _Field(
-                  controller: _key,
-                  label: 'Groq API key',
-                  hint: 'gsk_…',
-                  obscure: _obscureKey,
-                  onSubmitted: (String v) => unawaited(settings.setGroqApiKey(v)),
-                  suffix: GestureDetector(
-                    onTap: () => setState(() => _obscureKey = !_obscureKey),
-                    child: Text(
-                      _obscureKey ? 'SHOW' : 'HIDE',
-                      style: PuckType.label,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                children: <Widget>[
+                  // "< Back  Settings" -- the back row is a 44pt tap target.
+                  SizedBox(
+                    height: 44,
+                    child: Row(
+                      children: <Widget>[
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => Navigator.of(context).pop(),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(
+                                Icons.chevron_left_rounded,
+                                size: 24,
+                                color: PuckPalette.textSec,
+                              ),
+                              SizedBox(width: 2),
+                              Text(
+                                'Back',
+                                style: TextStyle(
+                                  fontFamily: PuckType.fontFamily,
+                                  fontSize: 17,
+                                  color: PuckPalette.textSec,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Settings', style: PuckType.primary),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                _ModelChoice(
-                  current: settings.llmModel,
-                  onChanged: (String model) =>
-                      unawaited(settings.setLlmModel(model)),
-                ),
-                const _Note(
-                  'Stored in the iOS Keychain / Android Keystore, never in '
-                  'backups. Get a free key at console.groq.com/keys. Without '
-                  'one, Puck still answers coin flips, dice, sums, and the time.',
-                ),
-              ],
-            ),
+                  const SizedBox(height: 32),
 
-            // -- Behaviour ---------------------------------------------------
-            _Section(
-              title: 'BEHAVIOUR',
-              children: <Widget>[
-                _Switch(
-                  label: 'Haptics',
-                  value: settings.hapticsEnabled,
-                  onChanged: settings.setHaptics,
-                ),
-                _Switch(
-                  label: 'Flashlight on SOS',
-                  value: settings.torchEnabled,
-                  onChanged: settings.setTorch,
-                ),
-                _Switch(
-                  label: 'SOS strobe (Morse)',
-                  value: settings.strobeEnabled,
-                  onChanged: settings.setStrobe,
-                ),
-                _Switch(
-                  label: 'Jokes from the model',
-                  value: settings.giggleFromModel,
-                  onChanged: settings.setGiggleFromModel,
-                ),
-                const _Note(
-                  'Jokes from the model costs one round-trip per double-tap and '
-                  'needs a key. Off, Puck serves the bundled shuffle bag: '
-                  'instant, offline, and it never repeats itself.',
-                ),
-                const _Note(
-                  'Puck asks for permissions only when a gesture needs them: '
-                  'calendar on first tap, location on first SOS or weather '
-                  'check, microphone when you press the mic.',
-                ),
-              ],
-            ),
+                  const Text('API key', style: PuckType.primary),
+                  const SizedBox(height: 10),
+                  _Input(
+                    controller: _key,
+                    focusNode: _keyFocus,
+                    hint: 'Paste',
+                    keyboardType: TextInputType.url,
+                    suffix: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => unawaited(_pasteKey()),
+                      child: const Padding(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Text('Paste', style: PuckType.body),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Free at console.groq.com/keys',
+                    style: PuckType.label,
+                  ),
+                  const SizedBox(height: 32),
 
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20, 8, 20, 40),
-                child: Text('PUCK · v1.0.0', style: PuckType.label),
+                  const Text('Emergency contact', style: PuckType.primary),
+                  const SizedBox(height: 10),
+                  _Input(
+                    controller: _contact,
+                    focusNode: _contactFocus,
+                    hint: 'Number',
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'The SOS message opens in Messages, ready to send. '
+                    'Nothing is ever sent on its own.',
+                    style: PuckType.label,
+                  ),
+
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Divider(height: 1, color: PuckPalette.divider),
+                  ),
+
+                  Text(
+                    'Puck cancels itself when you release early. '
+                    'It has done that $cancels '
+                    '${cancels == 1 ? 'time' : 'times'}.',
+                    style: PuckType.body,
+                  ),
+
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Divider(height: 1, color: PuckPalette.divider),
+                  ),
+                ],
+              ),
+            ),
+            // The quietest line on the screen. Centred, 32px up.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 32),
+              child: Text(
+                'Version 1.0 · Made for hackathon',
+                textAlign: TextAlign.center,
+                style: PuckType.label.copyWith(color: PuckPalette.textMuted),
               ),
             ),
           ],
@@ -176,222 +191,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(title, style: PuckType.label),
-            const SizedBox(height: 14),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  const _Field({
+/// 56px tall, #111111, 16px corners. No borders, no labels inside.
+class _Input extends StatelessWidget {
+  const _Input({
     required this.controller,
-    required this.label,
+    required this.focusNode,
     required this.hint,
-    required this.onSubmitted,
-    this.keyboardType,
-    this.textCapitalization = TextCapitalization.none,
-    this.obscure = false,
     this.suffix,
+    this.keyboardType,
   });
 
   final TextEditingController controller;
-  final String label;
+  final FocusNode focusNode;
   final String hint;
-  final ValueChanged<String> onSubmitted;
-  final TextInputType? keyboardType;
-  final TextCapitalization textCapitalization;
-  final bool obscure;
   final Widget? suffix;
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: PuckPalette.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: PuckPalette.hairline),
+        color: PuckPalette.card,
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  style: PuckType.body,
-                  obscureText: obscure,
-                  keyboardType: keyboardType,
-                  textCapitalization: textCapitalization,
-                  cursorWidth: 1.5,
-                  onSubmitted: onSubmitted,
-                  onEditingComplete: () => onSubmitted(controller.text),
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    suffixIcon: suffix,
-                    suffixIconConstraints:
-                        const BoxConstraints(minWidth: 40, minHeight: 24),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Switch extends StatelessWidget {
-  const _Switch({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final String label;
-  final bool value;
-  final Future<void> Function(bool) onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: <Widget>[
-          Expanded(child: Text(label, style: PuckType.body)),
-          Switch.adaptive(
-            value: value,
-            onChanged: (bool v) => unawaited(onChanged(v)),
-            activeThumbColor: PuckPalette.background,
-            activeTrackColor: PuckPalette.textHigh,
-            inactiveThumbColor: PuckPalette.textMid,
-            inactiveTrackColor: PuckPalette.surfaceHi,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ModelChoice extends StatelessWidget {
-  const _ModelChoice({required this.current, required this.onChanged});
-
-  final String current;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool fast = current == GroqLlmProvider.defaultModel;
-    return Row(
-      children: <Widget>[
-        _Chip(
-          label: 'gpt-oss-20b',
-          caption: 'fastest',
-          selected: fast,
-          onTap: () => onChanged(GroqLlmProvider.defaultModel),
+      alignment: Alignment.center,
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        keyboardType: keyboardType,
+        autocorrect: false,
+        enableSuggestions: false,
+        style: PuckType.primary.copyWith(fontWeight: FontWeight.w400),
+        cursorWidth: 2,
+        decoration: InputDecoration(
+          hintText: hint,
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+          suffixIcon: suffix,
+          suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         ),
-        const SizedBox(width: 10),
-        _Chip(
-          label: 'gpt-oss-120b',
-          caption: 'smarter',
-          selected: !fast,
-          onTap: () => onChanged(GroqLlmProvider.fallbackModel),
-        ),
-      ],
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.label,
-    required this.caption,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final String caption;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? PuckPalette.textHigh : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? PuckPalette.textHigh : PuckPalette.hairline,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              label,
-              style: PuckType.detail.copyWith(
-                color: selected ? PuckPalette.background : PuckPalette.textHigh,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(width: 7),
-            Text(
-              caption.toUpperCase(),
-              style: PuckType.label.copyWith(
-                fontSize: 8,
-                color: selected
-                    ? PuckPalette.background.withValues(alpha: 0.6)
-                    : PuckPalette.textLow,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Note extends StatelessWidget {
-  const _Note(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 10, 2, 0),
-      child: Text(
-        text,
-        style: PuckType.detail.copyWith(fontSize: 12, height: 1.5),
       ),
     );
   }

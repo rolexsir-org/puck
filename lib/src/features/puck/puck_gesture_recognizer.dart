@@ -1,17 +1,16 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:puck/src/core/constants.dart';
 
 /// The one gesture that Puck understands: a press.
 ///
 /// Flutter's stock recognisers could not do this cleanly. A `GestureDetector`
-/// with tap + doubleTap + longPress + verticalDrag puts four recognisers in the
-/// gesture arena, and the vertical-drag recogniser wins the moment the finger
-/// clears touch slop -- which kills swipe-up, because a swipe-up *is* vertical
-/// travel. Stacking `Listener` on top means reimplementing slop, timing and
-/// velocity anyway.
+/// with tap + doubleTap + longPress + verticalDrag puts four recognisers in
+/// the gesture arena, and the vertical-drag recogniser wins the moment the
+/// finger clears touch slop -- which kills swipe-up, because a swipe-up *is*
+/// vertical travel. Stacking `Listener` on top means reimplementing slop,
+/// timing and velocity anyway.
 ///
 /// So: one recogniser, one pointer, a small state machine. It accepts the
 /// arena immediately (Puck owns anything that starts on the bubble) and then
@@ -34,6 +33,7 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
     required this.onDragStart,
     this.onPressStart,
     this.onPressCancel,
+    this.onPressEnd,
     this.longPressDuration = PuckConstants.longPressDuration,
     this.doubleTapTimeout = PuckConstants.doubleTapTimeout,
     this.swipeUpDistance = PuckConstants.swipeUpDistance,
@@ -44,10 +44,18 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
   final void Function(Offset delta, Offset globalPosition) onDragUpdate;
   final void Function(Velocity velocity) onDragEnd;
 
-  /// Fired on pointer down / on any resolution, so the bubble can run its
-  /// press animation and its 3-second hold ring.
+  /// Fired on pointer down, so the bubble can run its press animation and
+  /// its 3-second hold ring.
   final VoidCallback? onPressStart;
+
+  /// Fired when a press stops counting -- drag started, swipe won, long-press
+  /// fired, or the finger lifted. Drives the ring and press visuals.
   final VoidCallback? onPressCancel;
+
+  /// Fired on the physical lifting of the pointer, whatever the press
+  /// became. This is the pocket-release signal: if SOS is counting down when
+  /// this arrives, the hold was never deliberate and the countdown dies.
+  final VoidCallback? onPressEnd;
 
   final Duration longPressDuration;
   final Duration doubleTapTimeout;
@@ -65,7 +73,8 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
   Timer? _doubleTapTimer;
   DateTime? _lastTapAt;
 
-  final VelocityTracker _tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
+  final VelocityTracker _tracker =
+      VelocityTracker.withKind(PointerDeviceKind.touch);
 
   @override
   String get debugDescription => 'puck';
@@ -91,7 +100,7 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void handleEvent(PointerEvent event) {
-    assert(_pointer == null || _pointer == event.pointer);
+    if (_pointer != null && _pointer != event.pointer) return;
 
     if (event is PointerMoveEvent) {
       _handleMove(event);
@@ -107,6 +116,7 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
       _cancelLongPress();
       if (_mode == _Mode.drag) onDragEnd(Velocity.zero);
       onPressCancel?.call();
+      onPressEnd?.call();
       _reset();
       stopTrackingPointer(event.pointer);
     }
@@ -157,6 +167,7 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
     if (_mode == _Mode.drag) {
       onDragEnd(_tracker.getVelocity());
       onPressCancel?.call();
+      onPressEnd?.call();
       _reset();
       stopTrackingPointer(event.pointer);
       return;
@@ -168,6 +179,7 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
       onPressCancel?.call();
     }
 
+    onPressEnd?.call();
     _reset();
     stopTrackingPointer(event.pointer);
   }

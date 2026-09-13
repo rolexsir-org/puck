@@ -6,23 +6,23 @@ import 'package:puck/src/core/format.dart';
 /// A deterministic, offline intent resolver.
 ///
 /// Two jobs:
-///   1. Answer the things that do not need a language model at all, and that a
-///      language model is actively bad at -- coin flips should be uniformly
+///   1. Answer the things that do not need a language model at all, and that
+///      a language model is actively bad at -- coin flips should be uniformly
 ///      random and arithmetic should be correct, not plausible.
-///   2. Keep Puck usable with no API key and no network. A demo build with no
-///      key still answers "flip a coin" instantly instead of showing a blank.
+///   2. Keep Puck usable with no API key and no network. A build with no key
+///      still answers "flip a coin" instantly instead of showing a blank.
 ///
-/// Returns null when it has no opinion, letting the router escalate to the LLM.
+/// Returns null when it has no opinion, letting the router escalate to the
+/// LLM.
 class LocalIntentResolver {
   LocalIntentResolver({math.Random? random}) : _rng = random ?? math.Random();
 
   final math.Random _rng;
 
-  static const List<String> _shrugs = <String>[
-    'No API key set — Puck is running offline.',
-    'Offline, and not wise enough to guess.',
-    'No key, no network, no clue. Set one in settings.',
-  ];
+  /// The one honest sentence for "I cannot answer this without the network".
+  /// Never an error dialog, never an apology tour -- one line, then the
+  /// things that still work.
+  static const String offlineLine = 'Offline. Try coin, dice, or maths.';
 
   String? tryResolve(String raw) {
     final String q = raw.trim().toLowerCase();
@@ -37,7 +37,7 @@ class LocalIntentResolver {
     final String? rand = _randomNumber(q);
     if (rand != null) return rand;
 
-    final String? maths = _maths(raw);
+    final String? maths = _maths(q);
     if (maths != null) return maths;
 
     final String? clock = _timeDate(q);
@@ -49,7 +49,7 @@ class LocalIntentResolver {
     return null;
   }
 
-  String shrug() => _shrugs[_rng.nextInt(_shrugs.length)];
+  String offline() => offlineLine;
 
   // -- Handlers ------------------------------------------------------------
 
@@ -89,19 +89,36 @@ class LocalIntentResolver {
     return '${lo + _rng.nextInt(hi - lo + 1)}.';
   }
 
-  String? _maths(String raw) {
-    if (!ExpressionEvaluator.looksLikeMaths(raw)) return null;
-    final double? value = ExpressionEvaluator.tryEvaluate(raw);
+  /// Accepts both typed arithmetic ("47*83") and spoken arithmetic
+  /// ("what's 47 times 83"). The spoken forms are normalised to operators
+  /// and handed to the same evaluator, so both paths share one grammar.
+  String? _maths(String q) {
+    String normalised = q
+        .replaceAll(RegExp(r"^(what'?s|what is|whats|calculate|compute)\s+"), '')
+        .replaceAll('?', '')
+        .replaceAll('×', '*')
+        .replaceAll('÷', '/')
+        .replaceAll(RegExp(r'\btimes\b'), '*')
+        .replaceAll(RegExp(r'\bmultiplied by\b'), '*')
+        .replaceAll(RegExp(r'\bplus\b'), '+')
+        .replaceAll(RegExp(r'\bminus\b'), '-')
+        .replaceAll(RegExp(r'\bdivided by\b'), '/')
+        .replaceAll('x', '*')
+        .trim();
+
+    if (!ExpressionEvaluator.looksLikeMaths(normalised)) return null;
+    final double? value = ExpressionEvaluator.tryEvaluate(normalised);
     if (value == null) return null;
     if (value == value.roundToDouble() && value.abs() < 1e15) {
-      return value.toStringAsFixed(0);
+      return '${value.toStringAsFixed(0)}.';
     }
-    return _trimDouble(value);
+    return '${_trimDouble(value)}.';
   }
 
+  /// "what's the time", "what day is it" -- free, exact, no network.
   String? _timeDate(String q) {
     final DateTime now = DateTime.now();
-    if (RegExp(r'\b(time|what.s the time|clock)\b').hasMatch(q)) {
+    if (RegExp(r'\b(time|clock)\b').hasMatch(q)) {
       return '${PuckFormat.clock(now)}.';
     }
     if (RegExp(r'\b(date|day|today)\b').hasMatch(q)) {
@@ -109,12 +126,12 @@ class LocalIntentResolver {
         'Monday', 'Tuesday', 'Wednesday', 'Thursday', //
         'Friday', 'Saturday', 'Sunday',
       ];
-      return '${days[now.weekday - 1]}, ${PuckFormat.shortStamp(now)}.';
+      return '${days[now.weekday - 1]}, ${PuckFormat.stamp(now)}.';
     }
     return null;
   }
 
-  /// "tea or coffee", "lunch: biryani or rajma" -- decide, as instructed.
+  /// "tea or coffee" -- decide, as instructed.
   String? _pickOne(String q) {
     final RegExpMatch? m =
         RegExp(r'(.{1,40}?)\s+or\s+(.{1,40}?)$').firstMatch(q);

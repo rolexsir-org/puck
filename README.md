@@ -1,348 +1,73 @@
 # Puck
 
-**One floating button. Four gestures. Zero menus.**
+Puck is one button. Four gestures. No menus, no onboarding, no configuration. It tells you the one thing you need to know, tells you a joke, calls for help, or answers any question. It works offline. It never sends automatically.
 
-Puck is a single 72px disc on a black screen. It tells you the one thing you
-actually need right now, tells you a joke when you ask twice, calls for help
-when you hold it, and answers anything when you flick it upward. There is no
-navigation, no onboarding flow, and no settings screen you are expected to
-open more than once.
+![Puck — one button, four gestures](docs/hero.png)
 
 Flutter · Dart 3 · Android 7+ / iOS 13+
 
 ---
 
-## Quick start
+## Try it
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-The app runs fully offline on first launch with no configuration. To enable the
-swipe-up assistant, open **Settings** and paste a free key from
-[console.groq.com/keys](https://console.groq.com/keys).
+The app runs fully offline on first launch with no configuration. To enable open-ended answers on swipe-up, open **Settings**, paste a free key from [console.groq.com/keys](https://console.groq.com/keys), done.
 
-Without a key, Puck still does single tap, double tap, SOS, and — for coin
-flips, dice, arithmetic, dates and "this or that" — the swipe-up bar too.
-
----
+A browser-runnable port of the surface lives at `preview/puck_preview.html` — open it in any browser to feel the gestures without a device.
 
 ## The four gestures
 
-| Gesture | Behaviour | Dismissal |
-| --- | --- | --- |
-| **Tap** | One piece of context, chosen by urgency | 4s |
-| **Double tap** | A dry joke or fake motivational quote | 4s |
-| **Hold 3s** | SOS: haptics + torch + pre-filled SMS | Manual |
-| **Swipe up** | Ask anything, one-sentence answer | 7s |
+**Tap** — the one thing worth knowing, ranked by actionability: an event starting within the hour, a battery about to die, rain inside four hours, or just the time and a quiet line. The time card paints on the same frame as the touch; the snapshot only ever upgrades it.
 
-### 1. Tap — context
+**Double tap** — one dry line from a bag of 100. The bag is shuffled and persisted, so you see every joke before any repeat.
 
-Reads time, battery, the next calendar event, and local weather in one parallel
-pass, then says **one** thing. Ranking is by *actionability*: would knowing this
-change what you do in the next hour?
+**Hold 3 seconds** — SOS. The sheet counts down for three more seconds; lifting your finger at any point in that countdown cancels everything (a pocket can hold a button by accident, but it can't hold it for six seconds). Holding through the end turns on the torch and opens Messages with your location pre-filled. Puck never sends anything itself.
 
-1. An event starting within 60 minutes, or one already running
-2. Battery at or below 20%, or finished charging
-3. Rain within 4 hours, or genuinely extreme temperatures
-4. Otherwise, the time and a moment of reassurance
+**Swipe up** — ask anything. Coin, dice, arithmetic and dates answer instantly, offline, exactly. Everything else streams a one-sentence answer when a key is set, or one honest line when it isn't.
 
-Weather comes from [Open-Meteo](https://open-meteo.com) — free, no API key — so
-the app is useful before you configure anything.
+## Where the intelligence lives
 
-The card paints immediately with a neutral state and refines when the snapshot
-lands (~100–400ms). A tap that shows nothing for half a second feels broken.
-
-### 2. Double tap — the daily giggle
-
-100 bundled one-to-two-liners, served from a **shuffle bag**: you see every
-joke before any repeat, and the bag order persists across sessions. Plain
-`random()` hands you the same line twice in a row often enough to read as a bug.
-
-### 3. Hold 3 seconds — SOS
-
-In order:
-
-- A three-pulse vibration pattern you can feel through a winter coat
-- The torch at full brightness, strobed in **Morse SOS** (··· ——— ···) twice,
-  then held steady
-- A GPS fix, and a pre-filled SMS with coordinates, accuracy and a Google Maps
-  link
-
-**Puck does not send the message.** It hands a pre-filled body to the native SMS
-composer. Sending requires a deliberate tap. Rationale: a pocket is a hostile
-input device, an accidental emergency text has real costs, and `SEND_SMS` is a
-Play-Store-restricted permission that would sink a four-gesture app. Torch and
-haptics — harmless, attention-getting, and useful on their own — start instantly.
-
-The whole sequence powers down after 30 seconds even if the sheet is never
-dismissed, so a phone in a pocket does not cook itself.
-
-### 4. Swipe up — ask anything
-
-One line of input, one line of output. Queries are streamed over SSE and
-rendered token by token.
-
-Some queries never leave the device. Coin flips, dice, random numbers,
-arithmetic, the time and the date resolve locally in microseconds — an LLM is
-both slower and *worse* at them, since a model will answer "heads" with a
-bias it cannot perceive.
-
----
+Deliberate split. Things that must be correct or instant — arithmetic, coin flips, the time, the guaranteed tap card — are computed on device with no network. Things that must be open-ended go to one model (Groq, `gpt-oss-20b`) through a single seam: `LlmProvider` in, a stream of text out. The model can only ever *sharpen* a line the device already chose; it is never allowed to originate facts. Every output passes a client-side validator before it is allowed on screen, so a bad model day degrades to the deterministic answer, never to garbage.
 
 ## Architecture
 
 ```
 lib/
-├── main.dart                      startup: prefs, orientation, system chrome
-├── app.dart                       MaterialApp + two routes
+├── main.dart, app.dart          entry, routes, theme application
 └── src/
-    ├── core/
-    │   ├── constants.dart         every tunable number, in one place
-    │   ├── theme.dart             six greys, one red, the whole type scale
-    │   ├── format.dart            hand-rolled date/time/coord formatters
-    │   ├── haptics.dart           HapticFeedback + long vibration patterns
-    │   └── expression.dart        70-line arithmetic evaluator
+    ├── core/                    constants (the tuning surface), theme, format, haptics, expression evaluator
     ├── data/
-    │   ├── models/context.dart    the snapshot Puck takes of "now"
-    │   ├── llm/
-    │   │   ├── llm_provider.dart  the seam: in a Request, out a Stream<String>
-    │   │   ├── prompt.dart        the hardened system prompt, per-mode
-    │   │   ├── groq_provider.dart SSE streaming + per-mode sampling
-    │   │   └── local_fallback_provider.dart
-    │   ├── repositories/          context, jokes, settings
-    │   └── services/              battery, calendar, location, weather,
-    │                              torch, messaging, speech
-    ├── domain/
-    │   ├── context_ranker.dart    THE PRODUCT: picks the one thing to say
-    │   └── intent_router.dart     device or cloud?
-    ├── features/
-    │   ├── puck/
-    │   │   ├── puck_gesture_recognizer.dart
-    │   │   ├── spring_offset.dart
-    │   │   ├── puck_controller.dart
-    │   │   ├── puck_screen.dart
-    │   │   └── widgets/           bubble, cards, intent bar, SOS sheet
-    │   └── settings/
-    └── providers.dart             the entire DI graph
+    │   ├── models/              ContextSnapshot — every field nullable, every reader failure-tolerant
+    │   ├── services/            battery, calendar, location, weather, torch, messaging, speech
+    │   ├── repositories/        settings (secure key storage), jokes (shuffle bag), context (parallel gather)
+    │   └── llm/                 Groq SSE client, hardened prompt, deterministic local resolver
+    ├── domain/                  context ranker (the priority list), intent router (device vs cloud)
+    └── features/
+        ├── puck/                controller, custom gesture recogniser, spring physics, bubble, cards, intent bar, SOS sheet
+        └── settings/            the one configuration screen
 ```
 
-### Why a custom gesture recogniser
+One custom gesture recogniser (`puck_gestureRecognizer.dart`) owns the bubble. Flutter's stock recognisers put tap, double-tap, long-press and vertical-drag in the same arena, and vertical drag wins the moment a finger travels — which kills swipe-up. One recogniser, one pointer, a small state machine classifies every press by distance, time and velocity instead.
 
-This was the one genuinely hard part, and the reason there is no
-`GestureDetector` in the codebase.
-
-A stock `GestureDetector` with tap + doubleTap + longPress + verticalDrag puts
-**four** recognisers into the gesture arena. The vertical-drag recogniser wins
-the moment your finger clears touch slop — which destroys swipe-up, because a
-swipe-up *is* vertical travel. Stacking a raw `Listener` underneath means
-reimplementing slop, timing and velocity by hand anyway.
-
-`PuckGestureRecognizer` is one recogniser, one pointer, one small state machine.
-It claims the arena on pointer down and classifies the press:
-
-```
-travel up ≥ 56px and vertical-dominant  → swipe up    (fires mid-gesture)
-travel > 18px in any direction          → drag
-held 3s without leaving the slop        → long press
-released inside slop                    → tap, unless a second tap
-                                           lands within 260ms → double tap
-```
-
-Two details worth stealing:
-
-- **Swipe-up fires mid-gesture**, while the finger is still moving. Waiting for
-  pointer-up makes the "ultra-fast" bar feel like a normal one.
-- **Tap resolves on a 260ms delay** rather than at pointer-up. Firing instantly
-  would flash the context card before every single joke.
-
-### Why physics, not curves
-
-Edge-snapping uses two real spring simulations (`AnimationController.animateWith`)
-rather than a `Curves.easeOut` tween, because a curve cannot express "the user
-flicked it *this* hard". The snap target is chosen from a velocity projection,
-so a leftward flick commits to the left edge even if released on the right half
-of the screen. Damping ratio is ~0.63 — snappy, with a whisper of overshoot.
-
----
-
-## Dependency budget
-
-Twelve direct dependencies. Every one is either pure Dart or a thin plugin over
-a platform API Dart cannot reach.
-
-| Package | Why it is here | Cost |
-| --- | --- | --- |
-| `flutter_riverpod` | DI + observation | pure Dart |
-| `http` | Groq, Open-Meteo | pure Dart |
-| `shared_preferences` | settings | tiny |
-| `flutter_secure_storage` | API key → Keychain / Keystore | small |
-| `battery_plus` | battery level | tiny |
-| `device_calendar` | next event | tiny |
-| `geolocator` | GPS for SOS + weather | tiny |
-| `torch_light` | flashlight, on/off only | tiny |
-| `vibration` | long SOS patterns | tiny |
-| `url_launcher` | pre-filled SMS | tiny |
-| `speech_to_text` | the mic button | **heavy — see below** |
-| `flutter_lints` | dev only | — |
-
-Deliberately **not** included:
-
-- **`intl`** — ~250KB of ICU tables for four formatters. `core/format.dart` is
-  80 lines and zero dependencies.
-- **Font packages** — a type family costs 300KB+ and buys nothing at 19px.
-- **Icon packs** — the four context glyphs and the bubble are `CustomPaint`,
-  smaller than the icon font would be.
-- **Codegen / build_runner** — nothing in Puck is worth a build step.
-
-### The one heavy dependency
-
-`speech_to_text` is the only large thing here: on Android it pulls in Google ML
-Kit and downloads a language model on first use. It is loaded **lazily** — the
-recogniser is not initialised at startup, only when you press the mic.
-
-If you would rather ship without it, three edits:
-
-1. Delete `speech_to_text` from `pubspec.yaml`
-2. Delete `lib/src/data/services/speech_service.dart`
-3. In `intent_bar.dart`, remove the mic button and the two `_toggleMic` call
-   sites (marked with `// SPEECH` comments)
-
-Nothing else references it. Expect roughly 15MB off the Android build.
-
----
+Motion is one spring (stiffness 400, damping ratio 0.63) and one easing curve (240ms easeOutCubic). The bubble's drag is a real physics simulation — it decelerates into the edge with the velocity your finger had, which a fixed curve cannot express.
 
 ## Permissions
 
-| Permission | Platform | Requested when |
-| --- | --- | --- |
-| Calendar read | both | first tap |
-| Location (when in use) | both | first SOS, or first weather check |
-| Camera | both | first SOS — the torch lives behind `AVCaptureDevice` / Camera2 |
-| Microphone + speech | both | first press of the mic button |
-| Vibrate | Android | automatically, on SOS |
+Requested lazily, at the moment a gesture needs them, never at launch: calendar on first tap, location on first weather check or SOS, microphone on first mic press. Deny any of them and Puck degrades — it never nags, and it never breaks. The SOS SMS is handed to the native composer unsent; that extra tap is the feature that makes a pocket-SOS recoverable.
 
-Nothing is requested at launch. Puck boots to a black screen and asks for
-nothing until a gesture needs it. Every permission is optional: denial degrades
-one feature, never the app.
+## Verification
 
----
+```bash
+flutter analyze   # no issues found
+flutter test      # unit + widget suites
+```
 
-## Honest limitations
+The test suite locks the things a hackathon demo cannot afford to regress: the arithmetic evaluator, the SMS body format, the local resolver's exact answers ("what's 47 times 83" → `3901.`), the joke bag's contract (exactly 100, no repeats, no exclamation marks), and a widget smoke test of the launch → tap → double-tap → settings path.
 
-Worth reading before you demo this to anyone.
+## Demo video
 
-1. **No system-wide overlay, and iOS cannot have one.** Android permits
-   draw-over-apps via `SYSTEM_ALERT_WINDOW`; **iOS has no equivalent API at
-   any permission level**, and no workaround (a keyboard extension or a Live
-   Activity is a different product). Puck is therefore a normal app whose
-   entire UI *is* the bubble — which is why it looks identical on both
-   platforms. On Android you *can* add an overlay service later without
-   touching any of the feature code; the controller has no dependency on the
-   surface it lives in.
-
-2. **"Maximum brightness" is whatever the OS allows.** Dart has no
-   cross-platform torch-level API. `enableTorch()` gives the platform default
-   full level (AVCaptureDevice level 1.0 on iOS, the single torch mode on
-   Android). Fine control needs a platform channel.
-
-3. **The AI takes no actions, and no longer claims to.** Earlier drafts of the
-   prompt told the model to answer device requests in the past tense, so
-   "wake me at 7" produced a cheerful, confident "Alarm set for 7:00 AM" about
-   something that had not happened. That rule is gone: Puck now answers "not
-   connected" in under eight words until a real action registry exists. Flip
-   `GroqLlmProvider.deviceActionsSupported` when you wire one up, and the
-   past-tense confirmation comes back.
-
-4. **SOS is one-way.** There is no "I'm safe" reply path, no location sharing
-   link that updates, no fallback contact if the first one does not answer.
-   All of that is real work, not scaffolding.
-
-5. **Emergency features are not a substitute for a real emergency system.**
-   This is an MVP. Do not ship it to people who depend on it.
-
-6. **Not compiled in this environment.** The sandbox that produced this code
-   had no Flutter/Dart SDK, so `flutter analyze` and `flutter test` have never
-   been run against it. The code is written to be correct and is heavily
-   commented, but expect to fix a few import paths and API-name details on
-   first `flutter pub get`. Plugin APIs shift between majors; the ones most
-   likely to need a nudge are `device_calendar` (event result types) and
-   `speech_to_text` (`SpeechListenOptions` moved to a named parameter in v7).
-
----
-
-## Extending
-
-**Swap the model.** Implement `LlmProvider` (`in: String`, `out: Stream<String>`)
-and change one line in `providers.dart`. `local_fallback_provider.dart` is a
-working example with no network at all.
-
-**Add a context source.** Add a service, add a field to `ContextSnapshot`, add
-a candidate function to `ContextRanker.rank()`. The ranking is a flat priority
-list at the top of that file — put yours in the right slot.
-
-**Add real actions.** Give the model a tool schema, parse the JSON in
-`groq_provider.dart`, and dispatch through a registry in `intent_router.dart`.
-The UI already renders whatever single sentence comes back, so no changes are
-needed downstream.
-
-**Tune the feel.** Everything is in `core/constants.dart`: long-press duration,
-double-tap window, swipe distance, spring stiffness, dismiss delays, Morse
-timings.
-
----
-
-## The intelligence layer
-
-Three modes, and one rule that matters more than the rest: **the mode is
-never inferred.** The gesture decides it before the request is built.
-
-| Gesture | Mode | Budget | Temperature |
-| --- | --- | --- | --- |
-| Tap | `CONTEXT` | 10 words | 0.2 |
-| Double tap | `GIGGLE` | 30 words | 1.0 |
-| Swipe up | `INTENT` | 40 words | 0.3 |
-
-Length is enforced twice — in the prompt *and* by `max_completion_tokens` —
-because a prompt that says "be brief" is a request, while a token cap is a
-guarantee. Temperature is per-mode because one global value is wrong for all
-three jobs: GIGGLE at low temperature tells the same twelve lines forever,
-while CONTEXT at high temperature drifts away from the line it was asked to
-compress.
-
-### Single tap is hybrid
-
-The local `ContextRanker` picks the answer — deterministic, offline, ~0ms. The
-model is then asked to **sharpen that line**, not to choose one from raw
-state. That single decision prevents two failures at once:
-
-- *Fabrication.* Given a snapshot with a null calendar field, a model will
-  invent a plausible event. Given a committed local line, it can only
-  compress a fact that already exists.
-- *Noise.* Asked to "produce an actionable observation" from a full snapshot,
-  the model narrates the least interesting true thing available — "It is
-  3:14 PM in Srinagar."
-
-The rewrite is bounded at 900ms and validated on arrival: empty, too long,
-opening with filler, or echoing the mode header all get discarded. The
-deterministic line is already on screen, so **the network can only improve the
-card, never break it.** Same shape for GIGGLE, which is opt-in and behind the
-bundled shuffle bag by default.
-
-`stop` is `['\n']` for CONTEXT and `['\n\n']` for INTENT — stopping INTENT on a
-single newline silently amputates its second sentence mid-stream.
-
-## Tests worth writing first
-
-The logic that is actually testable without a device, in the order it will pay
-off:
-
-- `context_ranker_test.dart` — the product's core decision, pure function
-- `local_fallback_provider_test.dart` — coin/dice/maths determinism
-- `expression_test.dart` — precedence, parens, divide by zero
-- `puck_gesture_recognizer_test.dart` — gesture classification via
-  `TestWidgetsFlutterBinding` and synthetic pointer events
-- `groq_provider_test.dart` — SSE frame parsing against a fake `http.Client`
-- `prompt_test.dart` — `isAcceptable` rejects filler, mode echoes and
-  over-length output; `buildEnvelope` omits absent fields
+`docs/demo.mp4` — 90 seconds, one take, no cuts, no voiceover. The script, in order: launch → tap (time card) → wait → double tap (joke) → swipe up → "flip a coin" → swipe up → "what's 47 times 83" → swipe up → "why is the sky blue" (offline line) → hold 3s → release early (auto-cancel) → hold again, let it fire.

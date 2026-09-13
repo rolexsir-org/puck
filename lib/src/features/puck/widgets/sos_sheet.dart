@@ -1,52 +1,48 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/theme.dart';
-import 'package:puck/src/data/repositories/settings_repository.dart';
 import 'package:puck/src/features/puck/puck_controller.dart';
-import 'package:puck/src/providers.dart';
 
 /// The SOS sheet.
 ///
-/// Shown only after a deliberate three-second hold, and styled with the one
-/// non-monochrome colour in the app. The accent is not decoration -- it is the
-/// signal that this is the one surface where Puck is loud.
+/// Full-screen black; the one surface where Puck is loud. It appears only
+/// after a deliberate three-second hold, then counts down for three more.
 ///
-/// Sending is a two-step action by design. A pocket is a hostile input device
-/// and an accidental emergency message has real costs, so the torch and the
-/// vibrations start immediately (useful, harmless, attention-grabbing) while
-/// the message itself waits behind a deliberate tap.
-class SosSheet extends ConsumerStatefulWidget {
+/// The countdown is the pocket filter. Lifting the finger at any point in it
+/// disarms everything -- a phone jostled in a bag never keeps pressure for
+/// six seconds, but a person asking for help does. Holding through the end
+/// fires the torch, opens the SMS composer with the location pre-filled, and
+/// the ring becomes a status light for what happened.
+///
+/// There is no send button. The composer is the confirmation.
+class SosSheet extends StatefulWidget {
   const SosSheet({required this.controller, super.key});
 
   final PuckController controller;
 
   @override
-  ConsumerState<SosSheet> createState() => _SosSheetState();
+  State<SosSheet> createState() => _SosSheetState();
 }
 
-class _SosSheetState extends ConsumerState<SosSheet>
+class _SosSheetState extends State<SosSheet>
     with SingleTickerProviderStateMixin {
   late final AnimationController _slide = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 260),
+    duration: PuckConstants.move,
   )..forward();
 
-  late final Animation<Offset> _offset = Tween<Offset>(
-    begin: const Offset(0, 1),
-    end: Offset.zero,
-  ).animate(CurvedAnimation(parent: _slide, curve: Curves.easeOutCubic));
+  late final Animation<double> _offset = CurvedAnimation(
+    parent: _slide,
+    curve: PuckConstants.moveCurve,
+  );
 
   bool _closing = false;
 
-  Future<void> _dismiss({required bool send}) async {
+  Future<void> _cancel() async {
     if (_closing) return;
     _closing = true;
-    if (send) {
-      await widget.controller.sendSos();
-      return;
-    }
     await _slide.reverse();
     await widget.controller.cancelSos();
   }
@@ -62,187 +58,176 @@ class _SosSheetState extends ConsumerState<SosSheet>
     final SosView? sos = widget.controller.sos;
     if (sos == null) return const SizedBox.shrink();
 
-    final SettingsRepository settings = ref.watch(settingsProvider);
-    final bool hasContact = settings.hasEmergencyContact;
-    final bool locating = sos.phase == SosPhase.locating;
+    final bool counting = sos.phase == SosPhase.counting;
 
-    return Stack(
-      children: <Widget>[
-        // Scrim. Tapping it does NOT dismiss -- SOS stays until you say why.
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {},
-            child: ColoredBox(
-              color: PuckPalette.background.withValues(alpha: 0.72),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: SlideTransition(
-            position: _offset,
-            child: SafeArea(
-              top: false,
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-                decoration: BoxDecoration(
-                  color: PuckPalette.surface,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(
-                    color: PuckPalette.danger.withValues(alpha: 0.55),
-                  ),
-                  boxShadow: const <BoxShadow>[
-                    BoxShadow(
-                      color: Color(0x99000000),
-                      blurRadius: 40,
-                      offset: Offset(0, -8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: const BoxDecoration(
-                            color: PuckPalette.danger,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 9),
-                        Text(
-                          'SOS ARMED',
-                          style: PuckType.label.copyWith(
-                            color: PuckPalette.danger,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (sos.torchOn)
-                          Text(
-                            'TORCH ON',
-                            style: PuckType.label.copyWith(fontSize: 9),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      locating ? 'Locating…' : 'Ready to send',
-                      style: PuckType.headline.copyWith(fontSize: 22),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(sos.status, style: PuckType.detail),
-                    const SizedBox(height: 18),
-                    // Message preview -- the user should see exactly what goes
-                    // out before it goes out.
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: PuckPalette.background,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: PuckPalette.hairline),
-                      ),
-                      child: Text(
-                        sos.body ?? 'Building message…',
-                        style: PuckType.mono.copyWith(fontSize: 12.5),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      hasContact
-                          ? 'TO  ${settings.contactLabel}  ·  ${_mask(settings.contactPhone)}'
-                          : 'NO EMERGENCY CONTACT SET',
-                      style: PuckType.label.copyWith(
-                        color: hasContact ? PuckPalette.textMid : PuckPalette.danger,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SosButton(
-                      label: hasContact
-                          ? 'SEND SMS TO ${settings.contactLabel.toUpperCase()}'
-                          : 'ADD AN EMERGENCY CONTACT',
-                      filled: true,
-                      enabled: !locating,
-                      onTap: () {
-                        if (!hasContact) {
-                          Navigator.of(context).pushNamed('/settings');
-                          return;
-                        }
-                        unawaited(_dismiss(send: true));
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    _SosButton(
-                      label: "I'M SAFE — CANCEL",
-                      filled: false,
-                      enabled: true,
-                      onTap: () => unawaited(_dismiss(send: false)),
-                    ),
-                  ],
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: const Offset(0, 1),
+        end: Offset.zero,
+      ).animate(_offset),
+      child: Container(
+        color: PuckPalette.background,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: <Widget>[
+              const Spacer(),
+              _Ring(sos: sos),
+              const SizedBox(height: 24),
+              Text(
+                counting ? 'SOS in ${sos.secondsLeft}' : sos.status,
+                style: PuckType.body.copyWith(
+                  color: PuckPalette.textMuted,
+                  fontSize: 17,
                 ),
               ),
-            ),
+              if (!counting && !sos.hasContact) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  'No emergency contact set',
+                  style: PuckType.body.copyWith(color: PuckPalette.emergency),
+                ),
+              ],
+              const Spacer(),
+              Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(24, 0, 24, 32),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: _SheetButton(
+                    label: counting ? 'CANCEL' : 'STOP',
+                    counting: counting,
+                    onTap: () => unawaited(_cancel()),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
-  }
-
-  /// "+91 98••• ••210" -- enough to confirm the number, not enough to leak it
-  /// into a screenshot.
-  static String _mask(String phone) {
-    final String digits = phone.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 6) return phone;
-    final String head = digits.substring(0, 2);
-    final String tail = digits.substring(digits.length - 3);
-    return '+$head•••••$tail';
   }
 }
 
-class _SosButton extends StatelessWidget {
-  const _SosButton({
+/// 120px ring, 4px stroke. While counting it sweeps from full to empty in
+/// red. Afterwards it is a status light: green once the GPS fix landed,
+/// quiet grey while the radio is still working. (The palette has no amber;
+/// in-progress is grey, success is green, alarm is red. Three states, three
+/// tokens.)
+class _Ring extends StatelessWidget {
+  const _Ring({required this.sos});
+
+  final SosView sos;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool counting = sos.phase == SosPhase.counting;
+    final Color color = counting
+        ? PuckPalette.emergency
+        : (sos.position != null ? PuckPalette.success : PuckPalette.textSec);
+
+    return TweenAnimationBuilder<double>(
+      key: ValueKey<SosPhase>(sos.phase),
+      tween: Tween<double>(begin: 1, end: counting ? 0 : 1),
+      duration: counting
+          ? PuckConstants.sosCountdown
+          : const Duration(milliseconds: 200),
+      curve: counting ? Curves.linear : Curves.easeOutCubic,
+      builder: (BuildContext context, double t, Widget? child) {
+        return SizedBox(
+          width: 120,
+          height: 120,
+          child: CustomPaint(
+            painter: _RingPainter(progress: t, color: color),
+            child: Center(child: child),
+          ),
+        );
+      },
+      child: counting
+          ? Text('${sos.secondsLeft}', style: PuckType.countdown)
+          : Icon(
+              sos.position != null
+                  ? Icons.check_rounded
+                  : Icons.more_horiz_rounded,
+              size: 44,
+              color: color,
+            ),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  const _RingPainter({required this.progress, required this.color});
+
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Offset center = size.center(Offset.zero);
+    final Rect rect = Rect.fromCircle(center: center, radius: 58);
+
+    // Track: the faint circle the sweep lives on.
+    canvas.drawCircle(
+      center,
+      58,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..color = PuckPalette.mutedBg,
+    );
+
+    if (progress <= 0) return;
+
+    // The sweep runs clockwise; `progress` is what remains, so the arc is
+    // drawn from the top, backwards -- full to empty, no rewind.
+    canvas.drawArc(
+      rect,
+      -1.5707963,
+      6.2831853 * progress,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..strokeCap = progress >= 1 ? StrokeCap.butt : StrokeCap.round
+        ..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) =>
+      old.progress != progress || old.color != color;
+}
+
+/// The one button. Red while the decision is live; quieter once the message
+/// is on its way and "stop" means stop the noise, not stop the message.
+class _SheetButton extends StatelessWidget {
+  const _SheetButton({
     required this.label,
-    required this.filled,
-    required this.enabled,
+    required this.counting,
     required this.onTap,
   });
 
   final String label;
-  final bool filled;
-  final bool enabled;
+  final bool counting;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.4,
-      child: GestureDetector(
-        onTap: enabled ? onTap : null,
-        child: Container(
-          height: 52,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: filled ? PuckPalette.textHigh : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
-            border: filled ? null : Border.all(color: PuckPalette.hairline),
-          ),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: PuckType.label.copyWith(
-              fontSize: 11,
-              color: filled ? PuckPalette.background : PuckPalette.textMid,
-            ),
-          ),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: PuckConstants.move,
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: counting ? PuckPalette.emergency : PuckPalette.mutedBg,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: PuckType.primary.copyWith(fontWeight: FontWeight.w600),
         ),
       ),
     );

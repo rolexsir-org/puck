@@ -31,8 +31,6 @@ final Provider<SharedPreferences> sharedPreferencesProvider =
   ),
 );
 
-/// A ChangeNotifier, not a plain Provider: the settings screen and the
-/// haptics service both need to rebuild when a toggle flips.
 final ChangeNotifierProvider<SettingsRepository> settingsProvider =
     ChangeNotifierProvider<SettingsRepository>(
   (Ref ref) => SettingsRepository(ref.watch(sharedPreferencesProvider)),
@@ -40,9 +38,8 @@ final ChangeNotifierProvider<SettingsRepository> settingsProvider =
 
 // -- Services ---------------------------------------------------------------
 
-final Provider<HapticsService> hapticsProvider = Provider<HapticsService>(
-  (Ref ref) => HapticsService(enabled: ref.watch(settingsProvider).hapticsEnabled),
-);
+final Provider<HapticsService> hapticsProvider =
+    Provider<HapticsService>((Ref ref) => HapticsService());
 
 final Provider<BatteryService> batteryServiceProvider =
     Provider<BatteryService>((Ref ref) => BatteryService());
@@ -86,15 +83,15 @@ final Provider<JokeRepository> jokeRepositoryProvider =
 /// Reads the API key lazily from settings, so saving a key in the settings
 /// screen does not require rebuilding the provider graph.
 final Provider<GroqLlmProvider> groqProvider = Provider<GroqLlmProvider>(
-  (Ref ref) => GroqLlmProvider(
-    settings: ref.watch(settingsProvider),
-    model: ref.watch(settingsProvider).llmModel,
-  ),
+  (Ref ref) => GroqLlmProvider(settings: ref.watch(settingsProvider)),
 );
+
+final Provider<LocalIntentResolver> localResolverProvider =
+    Provider<LocalIntentResolver>((Ref ref) => LocalIntentResolver());
 
 final Provider<IntentRouter> intentRouterProvider = Provider<IntentRouter>(
   (Ref ref) => IntentRouter(
     llm: ref.watch(groqProvider),
-    local: LocalIntentResolver(),
+    local: ref.watch(localResolverProvider),
   ),
 );

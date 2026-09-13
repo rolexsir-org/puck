@@ -12,7 +12,8 @@ abstract final class ContextRanker {
   /// An event inside this window is worth interrupting someone for.
   static const Duration meetingWindow = Duration(minutes: 60);
 
-  /// ...but only warn about rain a few hours out. A 14-hour forecast is trivia.
+  /// ...but only warn about rain a few hours out. A 14-hour forecast is
+  /// trivia.
   static const Duration rainWindow = Duration(hours: 4);
 
   static const int lowBatteryThreshold = 20;
@@ -22,7 +23,7 @@ abstract final class ContextRanker {
     final ContextItem? item = _calendar(snap, now) ?? //
         _battery(snap) ??
         _weather(snap, now);
-    return item ?? _timeOfDay(now);
+    return item ?? timeOfDay(now);
   }
 
   // -- Candidates, in descending order of urgency --------------------------
@@ -129,16 +130,18 @@ abstract final class ContextRanker {
 
   // -- Fallback ------------------------------------------------------------
 
-  /// No urgent signal. Say the time, and if it is late, say something human.
-  static ContextItem _timeOfDay(DateTime now) {
+  /// No urgent signal. The guaranteed answer to a tap: the time, and a line
+  /// that reads like a person wrote it. This paints before any await runs,
+  /// so a tap is never answered with a spinner.
+  static ContextItem timeOfDay(DateTime now) {
     final int h = now.hour;
+    final String clock = PuckFormat.clock(now);
 
-    if (h >= 0 && h < 5) {
-      return const ContextItem(
+    if (h < 5) {
+      return ContextItem(
         kind: ContextKind.time,
-        label: 'IT IS LATE',
+        label: clock,
         headline: 'Nothing urgent. Sleep is also a plan.',
-        detail: null,
       );
     }
 
@@ -146,14 +149,30 @@ abstract final class ContextRanker {
       return ContextItem(
         kind: ContextKind.time,
         label: 'GOOD MORNING',
-        headline: '${PuckFormat.clock(now)} — clear calendar ahead.',
+        headline: '$clock — clear ahead.',
+      );
+    }
+
+    if (h < 17) {
+      return ContextItem(
+        kind: ContextKind.time,
+        label: 'GOOD AFTERNOON',
+        headline: '$clock — nothing needs you right now.',
+      );
+    }
+
+    if (h < 22) {
+      return ContextItem(
+        kind: ContextKind.time,
+        label: 'GOOD EVENING',
+        headline: '$clock — nothing needs you right now.',
       );
     }
 
     return ContextItem(
       kind: ContextKind.time,
-      label: 'ALL CLEAR',
-      headline: '${PuckFormat.clock(now)} — nothing needs you right now.',
+      label: clock,
+      headline: 'Nothing urgent. Tomorrow is already queueing.',
     );
   }
 }

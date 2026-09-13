@@ -1,94 +1,87 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Puck's entire colour vocabulary: six greys and one red.
-///
-/// The red exists for exactly one reason -- the SOS state -- and is never
-/// used decoratively. Everything else is monochrome by design.
+/// The entire approved palette. Nothing outside this list may appear in the
+/// app; if a colour seems missing (amber for "acquiring GPS", for instance),
+/// the nearest token above is used instead of inventing a new one.
 abstract final class PuckPalette {
-  /// Matte black. Not #000 -- pure black makes OLED text look like it floats.
-  static const Color background = Color(0xFF08080A);
-
-  static const Color surface = Color(0xFF141418);
-  static const Color surfaceHi = Color(0xFF1C1C21);
-  static const Color hairline = Color(0xFF27272E);
-
-  static const Color textHigh = Color(0xFFF4F4F6);
-  static const Color textMid = Color(0xFF9A9AA3);
-  static const Color textLow = Color(0xFF5C5C66);
-
-  static const Color danger = Color(0xFFE5484D);
+  static const Color background = Color(0xFF000000);
+  static const Color card = Color(0xFF111111);
+  static const Color divider = Color(0xFF1F1F1F);
+  static const Color mutedBg = Color(0xFF2A2A2A);
+  static const Color textMuted = Color(0xFF666666);
+  static const Color textSec = Color(0xFF999999);
+  static const Color textPrim = Color(0xFFFFFFFF);
+  static const Color emergency = Color(0xFFFF3B30);
+  static const Color success = Color(0xFF30D158);
 }
 
 /// Type scale. System fonts only -- shipping a font family costs 300KB+ and
 /// buys nothing at this size.
+///
+/// Five sizes (13/15/17/19/24), three weights (400/500/600). Line height 1.3
+/// for body, 1.15 for large numbers. Letter spacing -0.2 on large numbers,
+/// 0 everywhere else.
 abstract final class PuckType {
   static const String fontFamily = '.System';
 
-  /// Tiny, letter-spaced, uppercase. Used for provenance labels.
+  /// Secondary captions: card provenance labels, helper text.
   static const TextStyle label = TextStyle(
     fontFamily: fontFamily,
-    fontSize: 10,
-    height: 1.2,
-    letterSpacing: 1.4,
-    fontWeight: FontWeight.w600,
-    color: PuckPalette.textLow,
+    fontSize: 13,
+    height: 1.3,
+    fontWeight: FontWeight.w400,
+    color: PuckPalette.textMuted,
   );
 
-  /// The payload. The largest text on screen at any time.
-  static const TextStyle headline = TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 19,
-    height: 1.32,
-    letterSpacing: -0.25,
-    fontWeight: FontWeight.w500,
-    color: PuckPalette.textHigh,
-  );
-
+  /// Body: detail lines, settings notes, SOS status.
   static const TextStyle body = TextStyle(
     fontFamily: fontFamily,
     fontSize: 15,
-    height: 1.42,
-    letterSpacing: -0.1,
-    color: PuckPalette.textHigh,
+    height: 1.3,
+    fontWeight: FontWeight.w400,
+    color: PuckPalette.textSec,
   );
 
-  static const TextStyle detail = TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 13.5,
-    height: 1.36,
-    color: PuckPalette.textMid,
-  );
-
-  /// Jokes and AI answers. Monospace signals "quoted, not UI".
-  static const TextStyle mono = TextStyle(
-    fontFamily: 'Menlo',
-    fontFamilyFallback: <String>['SFMono-Regular', 'RobotoMono', 'monospace'],
-    fontSize: 15,
-    height: 1.5,
-    letterSpacing: -0.15,
-    color: PuckPalette.textHigh,
-  );
-
-  static const TextStyle input = TextStyle(
+  /// The payload. Card headlines, jokes, answers, inputs.
+  static const TextStyle primary = TextStyle(
     fontFamily: fontFamily,
     fontSize: 17,
     height: 1.3,
+    fontWeight: FontWeight.w500,
+    color: PuckPalette.textPrim,
+  );
+
+  /// Large single-line numbers: the SOS countdown label states, sheet titles.
+  static const TextStyle title = TextStyle(
+    fontFamily: fontFamily,
+    fontSize: 19,
+    height: 1.15,
+    fontWeight: FontWeight.w500,
+    color: PuckPalette.textPrim,
+  );
+
+  /// Reserved for the one moment Puck is loud: the SOS ring number.
+  static const TextStyle countdown = TextStyle(
+    fontFamily: fontFamily,
+    fontSize: 96,
+    height: 1.15,
     letterSpacing: -0.2,
-    color: PuckPalette.textHigh,
+    fontWeight: FontWeight.w300,
+    color: PuckPalette.textPrim,
   );
 }
 
 abstract final class PuckTheme {
   static ThemeData dark() {
     const base = ColorScheme.dark(
-      primary: PuckPalette.textHigh,
+      primary: PuckPalette.textPrim,
       onPrimary: PuckPalette.background,
-      surface: PuckPalette.surface,
-      onSurface: PuckPalette.textHigh,
-      error: PuckPalette.danger,
-      onError: Colors.white,
-      outline: PuckPalette.hairline,
+      surface: PuckPalette.background,
+      onSurface: PuckPalette.textPrim,
+      error: PuckPalette.emergency,
+      onError: PuckPalette.textPrim,
+      outline: PuckPalette.divider,
     );
 
     return ThemeData(
@@ -101,20 +94,20 @@ abstract final class PuckTheme {
       highlightColor: Colors.transparent,
       hoverColor: Colors.transparent,
       fontFamily: PuckType.fontFamily,
-      dividerColor: PuckPalette.hairline,
+      dividerColor: PuckPalette.divider,
       appBarTheme: const AppBarTheme(
         backgroundColor: PuckPalette.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        foregroundColor: PuckPalette.textHigh,
+        foregroundColor: PuckPalette.textPrim,
         titleTextStyle: TextStyle(
           fontFamily: PuckType.fontFamily,
-          fontSize: 15,
-          letterSpacing: 0.4,
-          fontWeight: FontWeight.w600,
-          color: PuckPalette.textHigh,
+          fontSize: 17,
+          letterSpacing: 0,
+          fontWeight: FontWeight.w500,
+          color: PuckPalette.textPrim,
         ),
       ),
       inputDecorationTheme: const InputDecorationTheme(
@@ -122,19 +115,20 @@ abstract final class PuckTheme {
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
         focusedBorder: InputBorder.none,
-        hintStyle: TextStyle(color: PuckPalette.textLow),
+        hintStyle: TextStyle(color: PuckPalette.textMuted),
         contentPadding: EdgeInsets.zero,
         isDense: true,
       ),
       textSelectionTheme: const TextSelectionThemeData(
-        cursorColor: PuckPalette.textHigh,
-        selectionColor: Color(0x33F4F4F6),
-        selectionHandleColor: PuckPalette.textHigh,
+        cursorColor: PuckPalette.textPrim,
+        selectionColor: Color(0x33FFFFFF),
+        selectionHandleColor: PuckPalette.textPrim,
       ),
     );
   }
 
   /// Applied once at startup for true edge-to-edge on both platforms.
+  /// Status bar icons stay light on black in every state the app can be in.
   static void applySystemChrome() {
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -151,34 +145,32 @@ abstract final class PuckTheme {
 }
 
 /// The card chrome shared by every floating panel.
+///
+/// #111111, not pure black -- the card has to read as an object floating
+/// above the screen it sits on.
 class PuckCard extends StatelessWidget {
-  const PuckCard({
-    required this.child,
-    super.key,
-    this.padding = const EdgeInsets.fromLTRB(16, 14, 16, 14),
-    this.borderColor = PuckPalette.hairline,
-  });
+  const PuckCard({required this.child, super.key});
 
   final Widget child;
-  final EdgeInsetsGeometry padding;
-  final Color borderColor;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: PuckPalette.surface.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: borderColor, width: 1),
+        color: PuckPalette.card,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: const <BoxShadow>[
           BoxShadow(
             color: Color(0x66000000),
-            blurRadius: 28,
-            offset: Offset(0, 10),
+            blurRadius: 16,
+            offset: Offset(0, 4),
           ),
         ],
       ),
-      child: Padding(padding: padding, child: child),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: child,
+      ),
     );
   }
 }

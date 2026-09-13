@@ -1,39 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:puck/src/core/theme.dart';
-import 'package:puck/src/data/repositories/joke_repository.dart';
+import 'package:puck/src/features/puck/widgets/appear_in.dart';
 
-/// The double-tap card.
-///
-/// Monospace, because the joke is a quoted object rather than interface copy.
-/// Quotes get a wink of a label; jokes get none -- a punchline with a label
-/// above it stops being a punchline.
+/// The double-tap card. One line of deadpan, set like everything else in the
+/// app -- a joke that announces itself as a joke stops being one.
 class JokeCard extends StatelessWidget {
-  const JokeCard({required this.joke, super.key});
+  const JokeCard({required this.text, super.key});
 
-  final Joke joke;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
-    final bool isQuote = joke.kind == JokeKind.quote;
-
-    return PuckCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (isQuote) ...<Widget>[
-            const Text('MOTIVATION, PROBABLY', style: PuckType.label),
-            const SizedBox(height: 8),
-          ],
-          Text(
-            joke.text,
-            style: PuckType.mono.copyWith(
-              // A joke set in a heavier weight reads like a system alert.
-              fontWeight: FontWeight.w400,
-            ),
+    return RepaintBoundary(
+      child: AppearIn(
+        child: PuckCard(
+          child: Text(
+            text,
+            style: PuckType.primary.copyWith(fontWeight: FontWeight.w400),
           ),
-        ],
+        ),
       ),
     );
   }

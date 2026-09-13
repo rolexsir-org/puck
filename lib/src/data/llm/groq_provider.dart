@@ -9,40 +9,31 @@ import 'package:puck/src/data/repositories/settings_repository.dart';
 
 /// Groq chat completions, streaming over SSE.
 ///
-/// Model choice (verified against the Groq model catalogue, Sept 2026):
-/// `openai/gpt-oss-20b` is the fastest production model on GroqCloud at
-/// ~1,000 tok/s and $0.075/M in. The old default, `llama-3.1-8b-instant`, has
-/// moved to the Enterprise tier and is no longer available on a normal key --
-/// do not copy-paste it from older tutorials.
+/// The stream is consumed straight off `Client.send()` -- no polling, no
+/// buffering the whole body -- so the first token paints the moment the
+/// model emits it.
 ///
-/// Sampling is deliberately per-mode rather than per-app: GIGGLE needs
-/// entropy (a low temperature makes it tell the same few lines forever),
-/// CONTEXT needs near-determinism because it is a compression task, and
-/// INTENT sits in between. See [PuckPrompt.temperatureFor].
+/// Sampling is deliberately per-mode rather than per-app: CONTEXT needs
+/// near-determinism because it is a compression task, and INTENT sits a
+/// little looser. See [PuckPrompt.temperatureFor].
 class GroqLlmProvider implements LlmProvider {
   GroqLlmProvider({
     required SettingsRepository settings,
     http.Client? client,
-    this.model = GroqLlmProvider.defaultModel,
-    this.deviceActionsSupported = false,
+    this.model = defaultModel,
   })  : _settings = settings,
         _client = client ?? http.Client();
 
   static const String endpoint =
       'https://api.groq.com/openai/v1/chat/completions';
-  static const String defaultModel = 'openai/gpt-oss-20b';
 
-  /// Fallback if the configured model is rejected (deprecations happen).
-  static const String fallbackModel = 'openai/gpt-oss-120b';
+  /// The fastest production model on GroqCloud at time of writing, and the
+  /// only one Puck uses. One model, one price class, no picker.
+  static const String defaultModel = 'openai/gpt-oss-20b';
 
   final SettingsRepository _settings;
   final http.Client _client;
   final String model;
-
-  /// Flip to true only when a real action registry exists behind the intent
-  /// router. Until then the prompt forbids claiming device actions, so the
-  /// model says "not connected" instead of inventing "Alarm set for 7:00 AM".
-  final bool deviceActionsSupported;
 
   @override
   String get id => 'groq:$model';
@@ -69,10 +60,7 @@ class GroqLlmProvider implements LlmProvider {
         'messages': <Map<String, String>>[
           <String, String>{
             'role': 'system',
-            'content': PuckPrompt.system(
-              request,
-              actionsSupported: deviceActionsSupported,
-            ),
+            'content': PuckPrompt.system(request),
           },
           <String, String>{'role': 'user', 'content': PuckPrompt.user(request)},
         ],
@@ -88,12 +76,9 @@ class GroqLlmProvider implements LlmProvider {
         .timeout(PuckConstants.llmConnectTimeout);
 
     if (response.statusCode != 200) {
-      final String body = await response.stream
-          .transform(utf8.decoder)
-          .join()
-          .timeout(const Duration(seconds: 2), onTimeout: () => '');
+      await response.stream.drain<void>();
       throw LlmException(
-        _describeStatus(response.statusCode, body),
+        _describeStatus(response.statusCode),
         statusCode: response.statusCode,
         retryable: response.statusCode >= 500 || response.statusCode == 429,
       );
@@ -126,19 +111,14 @@ class GroqLlmProvider implements LlmProvider {
     }
 
     if (lastFrame.isEmpty) {
-      throw const LlmException('Empty response from Groq');
+      throw const LlmException('Empty response from model');
     }
   }
 
-  String _describeStatus(int code, String body) {
-    if (code == 401) return 'Groq rejected the API key';
-    if (code == 429) return 'Rate limited by Groq';
-    if (code == 404) return 'Model unavailable — check the model id';
-    final String trimmed = body.trim();
-    if (trimmed.length > 120) {
-      return 'Groq error $code: ${trimmed.substring(0, 120)}…';
-    }
-    return 'Groq error $code: $trimmed';
+  String _describeStatus(int code) {
+    if (code == 401) return 'The API key was rejected';
+    if (code == 429) return 'Rate limited';
+    return 'Network error $code';
   }
 
   void dispose() => _client.close();

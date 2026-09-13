@@ -13,9 +13,6 @@ import 'package:vibration/vibration.dart';
 ///
 /// Every call is wrapped: a haptic failure must never break a gesture.
 class HapticsService {
-  HapticsService({this.enabled = true});
-
-  bool enabled;
   bool _patternProbed = false;
   bool _hasVibrator = false;
 
@@ -31,7 +28,6 @@ class HapticsService {
   /// The SOS signature: three long escalating pulses. Deliberately
   /// distinguishable from any notification the phone could otherwise produce.
   Future<void> sosAlarm() async {
-    if (!enabled) return;
     try {
       if (!_patternProbed) {
         _patternProbed = true;
@@ -59,7 +55,6 @@ class HapticsService {
 
   /// Single confirmation pulse when SOS is disarmed.
   Future<void> sosCancel() async {
-    if (!enabled) return;
     try {
       await Vibration.vibrate(duration: 90, amplitude: 90);
     } catch (_) {
@@ -68,7 +63,6 @@ class HapticsService {
   }
 
   Future<void> _fire(Future<void> Function() call) async {
-    if (!enabled) return;
     try {
       await call();
     } catch (_) {
