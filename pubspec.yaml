@@ -1,0 +1,64 @@
+name: puck
+description: >-
+  One floating button. Four gestures. Zero menus.
+  A minimalist context surface for people who hate apps.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+# ---------------------------------------------------------------------------
+# Dependency budget
+# ---------------------------------------------------------------------------
+# Puck is deliberately thin. Every dependency below is either (a) pure Dart
+# with no native payload, or (b) a thin plugin over a platform API we cannot
+# reach from Dart.
+#
+#   flutter_riverpod    pure Dart        state / DI
+#   http                pure Dart        Groq + Open-Meteo
+#   shared_preferences  plugin (tiny)    settings
+#   flutter_secure_storage  plugin       API key -> Keychain / Keystore
+#   battery_plus        plugin (tiny)    battery level
+#   device_calendar     plugin (tiny)    next event
+#   geolocator          plugin (tiny)    GPS for SOS + weather
+#   torch_light         plugin (tiny)    flashlight (binary on/off only)
+#   vibration           plugin (tiny)    long SOS patterns
+#   url_launcher        plugin (tiny)    pre-filled SMS
+#   speech_to_text      plugin (HEAVY)   <-- the only big one, see README
+#
+# No intl (hand-rolled formatters), no font packages (system type only),
+# no state-management codegen, no icon packs (custom painters).
+# ---------------------------------------------------------------------------
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_riverpod: ^2.6.1
+  http: ^1.2.2
+  shared_preferences: ^2.3.3
+  flutter_secure_storage: ^9.2.4
+  battery_plus: ^6.2.1
+  device_calendar: ^4.3.1
+  geolocator: ^13.0.2
+  torch_light: ^2.0.0
+  vibration: ^1.9.0
+  speech_to_text: ^7.0.0
+  url_launcher: ^6.3.1
+
+  # Puck Cloud: the phone agent's link to every other device.
+  # `cryptography` is pure Dart (X25519 + HKDF + AES-GCM, no FFI), and
+  # `web_socket_channel` is the thinnest socket wrapper available.
+  cryptography: ^2.7.0
+  web_socket_channel: ^3.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/jokes.json

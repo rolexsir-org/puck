@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Puck -- iOS Info.plist.
+
+  Flutter scaffolds an Info.plist with dozens of keys. Only the additions and
+  overrides Puck actually needs are shown here; merge these into the generated
+  file rather than replacing it.
+
+  Every usage string explains what the data is for, in the user's language.
+  Apple rejects vague purpose strings, and a user who trusts the explanation is
+  a user who taps Allow.
+-->
+<plist version="1.0">
+<dict>
+	<!-- Shown when a single tap reads your next calendar event. -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>Puck reads your next calendar event so a single tap can tell you what is coming up.</string>
+
+	<!-- Shown when SOS takes a GPS fix, and when a tap checks the weather. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Puck uses your location to include a map link in an emergency message, and to warn you about rain.</string>
+
+	<!-- Shown the first time you press the microphone in the ask-anything bar. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Puck uses the microphone so you can speak a question instead of typing it.</string>
+
+	<!-- Required alongside NSMicrophoneUsageDescription for on-device + cloud speech. -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Puck uses speech recognition to turn what you say into text you can send to the assistant.</string>
+
+	<!--
+	  Camera: torch_light drives the flashlight through AVCaptureDevice, which
+	  is gated on the camera entitlement. Puck never captures or stores a photo.
+	-->
+	<key>NSCameraUsageDescription</key>
+	<string>Puck uses the flashlight for the emergency signal. It never takes photos.</string>
+
+	<!--
+	  Package visibility: lets Puck query whether an SMS app can be opened.
+	  iOS has no SMS-sending API a third party may use, so Puck deep-links into
+	  Messages with the body pre-filled.
+	-->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>sms</string>
+	</array>
+
+	<!-- Portrait-only: Puck is one bubble on one surface. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+
+	<!--
+	  Puck is a dark, monochrome app. Declaring Light only here and forcing
+	  dark in the widget tree keeps the launch storyboard from flashing white
+	  on cold start.
+	-->
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
+
+	<!--
+	  Set after a real launch screen / storyboard exists. Without a storyboard
+	  this key causes a black flash on launch, so it is intentionally absent
+	  until you add one.
+	-->
+	<!-- <key>UILaunchStoryboardName</key><string>LaunchScreen</string> -->
+
+	<key>CFBundleDisplayName</key>
+	<string>Puck</string>
+
+	<key>CFBundleName</key>
+	<string>Puck</string>
+</dict>
+</plist>

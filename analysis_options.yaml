@@ -1,0 +1,50 @@
+# Puck lint profile ---------------------------------------------------------
+# Stricter than the Flutter default on the things that actually bite in a
+# gesture-heavy, animation-heavy codebase: implicit types, missed disposes,
+# and shadowed BuildContexts.
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+    strict-inference: true
+  errors:
+    # Treat these as build failures.
+    missing_required_param: error
+    missing_return: error
+    dead_code: warning
+    unused_import: warning
+    unused_local_variable: warning
+    invalid_use_of_protected_member: error
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - build/**
+    - android/**
+    - ios/**
+
+linter:
+  rules:
+    - always_declare_return_types
+    - always_use_package_imports
+    - avoid_dynamic_calls
+    - avoid_empty_else
+    - avoid_slow_async_io
+    - cancel_subscriptions
+    - close_sinks
+    - directives_ordering
+    - null_check_on_nullable_type_parameter
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - prefer_final_fields
+    - prefer_final_locals
+    - prefer_single_quotes
+    - prefer_typing_uninitialized_variables
+    - require_trailing_commas
+    - sized_box_for_whitespace
+    - sort_child_properties_last
+    - unawaited_futures
+    - unnecessary_lambdas
+    - use_super_parameters
