@@ -81,8 +81,8 @@ void main() {
     });
 
     test('the stamp reads like a text message, not a log line', () {
-      // Wednesday 15 Jan 2026, 3:14 PM.
-      expect(PuckFormat.stamp(DateTime(2026, 1, 15, 15, 14)), '3:14 PM · Wed Jan 15');
+      // Thursday 15 Jan 2026, 3:14 PM.
+      expect(PuckFormat.stamp(DateTime(2026, 1, 15, 15, 14)), '3:14 PM · Thu Jan 15');
     });
   });
 

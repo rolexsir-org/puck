@@ -1,5 +1,6 @@
+// Flutter's animation library re-exports physics.dart; `SpringDescription`
+// comes from there and needs no separate import.
 import 'package:flutter/animation.dart';
-import 'package:flutter/physics.dart';
 
 /// The single tuning surface for Puck.
 ///

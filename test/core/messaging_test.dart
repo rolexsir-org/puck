@@ -16,7 +16,7 @@ void main() {
         'I need help.\n'
         '34.0522°N, 118.2437°W (±12m)\n'
         'maps.google.com/?q=34.0522,-118.2437\n'
-        '3:14 PM · Wed Jan 15',
+        '3:14 PM · Thu Jan 15',
       );
     });
 
@@ -30,7 +30,7 @@ void main() {
 
       expect(body, startsWith('I need help.\nLocation unavailable'));
       expect(body.contains('maps.google.com'), isFalse);
-      expect(body.endsWith('3:14 PM · Wed Jan 15'), isTrue);
+      expect(body.endsWith('3:14 PM · Thu Jan 15'), isTrue);
     });
   });
 }

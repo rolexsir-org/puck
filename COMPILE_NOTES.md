@@ -5,6 +5,11 @@ First successful compile pass for `puck`.
 - Flutter **3.47.4** • Dart **3.13.3** • Linux x86_64
 - `flutter analyze` → **No issues found!**
 - `flutter test` → **29/29 passed** (exit 0)
+
+> **Update (2026-09-13).** A second pass on a newer Flutter stable fixed the
+> breakages §1–§10 did not cover, and corrected three test expectations that
+> were themselves wrong. See §11. The statuses above describe the *first*
+> pass, on 3.47.4; they do not describe this tree on current stable.
 - `flutter build apk --debug` → attempted; see §7
 - `flutter build ios --debug --no-codesign` → **not possible on this host**; see §8
 
@@ -297,3 +302,65 @@ particular is the file most worth a real test suite next.
 | Plugin behaviour at runtime | Untested on any device |
 | `torch_light` 2.0.0 | Compiles; not exercised — the brief's `EnableTorchException` is worth a try/catch review at the `TorchService` call site |
 | `geolocator`, `device_calendar`, `battery_plus`, `vibration` | All compiled without error, so no breaking-change migration was actually required |
+
+---
+
+## 11. Second pass — newer Flutter stable + bad test expectations
+
+Reported from a Windows checkout: `flutter analyze` → 11 issues, `flutter test`
+→ 3 failures. Two distinct classes of cause.
+
+### 11a. Breaking changes in current Flutter (4 files)
+
+The toolchain used for §1–§10 (3.47.4) predates two framework breaking changes
+that current stable enforces:
+
+1. **`RectTween` now extends `Tween<Rect?>`** (nullability change to match
+   `Rect.lerp`), so `RectTween(...).animate(...)` is an `Animation<Rect?>`, not
+   `Animation<Rect>`. `intent_bar.dart` declares the field as
+   `Animation<Rect?>` and reads `_pill.value ?? Rect.zero` — the fallback is
+   unreachable (`begin`/`end` are always both set), but the type can't prove
+   it.
+2. **`CustomPainter`'s `get repaint` was removed**; the repaint listenable is
+   now a constructor argument. `_HoldRingPainter` in `puck_bubble.dart` uses
+   `super(repaint: hold)` instead of overriding the (gone) getter. The
+   `override_on_non_overriding_member` warning was the removal showing up.
+
+Plus two gaps between the notes and the tree:
+
+3. §3 claimed `package:flutter/foundation.dart` was added to
+   `puck_gesture_recognizer.dart` for `VoidCallback` — it never landed in the
+   squashed commit. Added now; the three `VoidCallback?` fields compile.
+4. `constants.dart` imported `flutter/physics.dart` alongside
+   `flutter/animation.dart`, which re-exports it — the analyzer now flags the
+   redundancy; the physics import is dropped. (`spring_offset.dart` keeps its
+   own — it does not import `animation.dart`, so nothing is redundant there.)
+
+### 11b. The stamp tests asserted a day of week that never happened
+
+`format_test.dart` and `messaging_test.dart` build `DateTime(2026, 1, 15)` and
+expected the stamp to read `Wed Jan 15` — a comment even says "Wednesday 15
+Jan 2026". It was **Thursday**; the authors anchored on the 2025 calendar
+(Jan 15 2025 is a Wednesday). `PuckFormat.stamp` derives the name from
+`DateTime.weekday` and was right; the expected strings (3 sites) were changed
+to `Thu`. No product code touched. The third failure (`messaging_test.dart:33`,
+`isTrue` vs `isFalse`-looking output) is the same string inside `endsWith`, not
+a bug in the no-fix SMS path.
+
+### 11c. Test-suite authoring rules this exposed
+
+- Do not hard-code a day-of-week string next to a fixed date without checking
+  that date's weekday; the two can silently disagree with reality.
+- The widget smoke test's `import 'package:flutter/material.dart'` is
+  unnecessary (flutter_test re-exports it) and broke `directives_ordering`
+  once grouped oddly; imports in `test/widget/smoke_test.dart` are now one
+  alphabetized block.
+
+### 11d. Status after this pass
+
+| Area | Status |
+| --- | --- |
+| Static analysis on current stable | 11 → **0** expected (all 11 addressed) |
+| Core unit tests | **green** (2 day-name expectations corrected) |
+| Widget smoke test | compiles now (was load-failing on 11a.1–3); runtime not re-verified on a device |
+| APK build | still unproven end-to-end; unchanged by this pass |

@@ -1,14 +1,12 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:puck/app.dart';
 import 'package:puck/src/features/puck/widgets/context_card.dart';
 import 'package:puck/src/features/puck/widgets/joke_card.dart';
 import 'package:puck/src/features/puck/widgets/puck_bubble.dart';
 import 'package:puck/src/features/settings/settings_screen.dart';
 import 'package:puck/src/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:puck/app.dart';
 
 /// The judge's first 90 seconds, compressed: the app builds to a black
 /// screen with a bubble, a tap resolves to the context card, a double-tap
