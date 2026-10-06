@@ -5,6 +5,7 @@ import 'package:puck/src/data/models/context.dart';
 import 'package:puck/src/data/services/battery_service.dart';
 import 'package:puck/src/data/services/calendar_service.dart';
 import 'package:puck/src/data/services/location_service.dart';
+import 'package:puck/src/data/repositories/settings_repository.dart';
 import 'package:puck/src/data/services/weather_service.dart';
 
 /// Gathers device context in one parallel pass.
@@ -15,21 +16,31 @@ import 'package:puck/src/data/services/weather_service.dart';
 ///
 /// Every source is optional. If the calendar permission was denied, the ranker
 /// simply sees a null event and falls through to the next candidate.
+///
+/// Weather is the one source that leaves the device, so it is also the one
+/// source with an off switch: with cloud answers disabled the snapshot carries
+/// no weather, the ranker falls through to the calendar, the battery or the
+/// clock, and the tap card is still useful. The alternative -- keep fetching
+/// weather because it is "only" a temperature -- would make the privacy
+/// screen's first sentence false.
 class ContextRepository {
   ContextRepository({
     required BatteryService battery,
     required CalendarService calendar,
     required LocationService location,
     required WeatherService weather,
+    required SettingsRepository settings,
   })  : _battery = battery,
         _calendar = calendar,
         _location = location,
-        _weather = weather;
+        _weather = weather,
+        _settings = settings;
 
   final BatteryService _battery;
   final CalendarService _calendar;
   final LocationService _location;
   final WeatherService _weather;
+  final SettingsRepository _settings;
 
   /// Total time we will wait for the slow sources before ranking anyway.
   static const Duration budget = Duration(milliseconds: 1500);
@@ -60,6 +71,7 @@ class ContextRepository {
   }
 
   Future<WeatherSnapshot?> _weatherForCachedPosition() async {
+    if (!_settings.cloudEnabled) return null;
     final Position? position = await _location.lastKnown();
     if (position == null) return null;
     return _weather.read(position);

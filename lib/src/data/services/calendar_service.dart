@@ -93,7 +93,12 @@ class CalendarService {
             bestStart = start;
             final String title = (e.title ?? '').trim();
             best = CalendarEvent(
-              title: title.isEmpty ? 'Busy' : title,
+              // An untitled event keeps its empty title. It used to become the
+              // English word "Busy" here, which then travelled verbatim into
+              // the card -- so a Spanish user with an untitled appointment got
+              // an English word in a Spanish sentence. The substitution now
+              // happens in ContextRanker, which is handed the user's language.
+              title: title,
               start: start,
               end: end,
               location: e.location,

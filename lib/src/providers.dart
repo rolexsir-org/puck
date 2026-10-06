@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:puck/src/core/haptics.dart';
+import 'package:puck/src/data/llm/gated_provider.dart';
 import 'package:puck/src/data/llm/groq_provider.dart';
 import 'package:puck/src/data/llm/local_fallback_provider.dart';
 import 'package:puck/src/data/repositories/context_repository.dart';
@@ -78,6 +79,9 @@ final Provider<ContextRepository> contextRepositoryProvider =
     calendar: ref.watch(calendarServiceProvider),
     location: ref.watch(locationServiceProvider),
     weather: ref.watch(weatherServiceProvider),
+    // The weather lookup is a network call to Open-Meteo, so it answers to the
+    // same switch as the answers do. See ContextRepository.snapshot().
+    settings: ref.watch(settingsProvider),
   ),
 );
 
@@ -104,9 +108,18 @@ final Provider<GroqLlmProvider> groqProvider = Provider<GroqLlmProvider>(
 final Provider<LocalIntentResolver> localResolverProvider =
     Provider<LocalIntentResolver>((Ref ref) => LocalIntentResolver());
 
+/// Every cloud answer goes through the gate, so the "nothing leaves your
+/// phone" switch is one check rather than a per-feature promise.
+final Provider<GatedLlmProvider> gatedLlmProvider = Provider<GatedLlmProvider>(
+  (Ref ref) => GatedLlmProvider(
+    inner: ref.watch(groqProvider),
+    settings: ref.watch(settingsProvider),
+  ),
+);
+
 final Provider<IntentRouter> intentRouterProvider = Provider<IntentRouter>(
   (Ref ref) => IntentRouter(
-    llm: ref.watch(groqProvider),
+    llm: ref.watch(gatedLlmProvider),
     local: ref.watch(localResolverProvider),
   ),
 );
