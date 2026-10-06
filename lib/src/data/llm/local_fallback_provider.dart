@@ -77,6 +77,10 @@ class LocalIntentResolver {
   /// The one cloud failure the user can act on: their own key was refused.
   String keyRejected() => _strings.answerKeyRejected;
 
+  /// The fixed line for a crisis question. Never model output, never
+  /// rephrased -- see PuckSafety for why this category gets no improvisation.
+  String safety() => _strings.safetyLine;
+
   // -- Handlers ------------------------------------------------------------
 
   String? _coin(String q) {

@@ -4,6 +4,7 @@ import 'package:puck/src/data/llm/llm_provider.dart';
 import 'package:puck/src/data/llm/local_fallback_provider.dart';
 import 'package:puck/src/data/llm/prompt.dart';
 import 'package:puck/src/data/models/context.dart';
+import 'package:puck/src/domain/safety.dart';
 
 /// Decides where a query goes: the device, or the cloud.
 ///
@@ -78,6 +79,16 @@ class IntentRouter {
   /// answer itself.
   Stream<String> resolveRequest(LlmRequest request) async* {
     if (request.mode == PuckMode.intent) {
+      // Before the resolver, before the network: a crisis question is answered
+      // here, locally, with one fixed line. See PuckSafety -- this is the one
+      // category where the model's answer being merely *plausible* is not an
+      // acceptable failure mode, and where the question must not leave the
+      // phone at all.
+      if (PuckSafety.isCrisis(request.query)) {
+        yield _local.safety();
+        return;
+      }
+
       final String? instant = _local.tryResolve(request.query);
       if (instant != null) {
         yield instant;
