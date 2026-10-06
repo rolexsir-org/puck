@@ -391,9 +391,17 @@ habit (tap and hold only).
 | 4 | Accessibility | **Done in the code** except the parts that need a device: semantics on everything, 48dp targets, dynamic-type audit documented but unmeasured, contrast fixed and tested, reduce-motion honoured, nothing carried by colour or vibration alone. |
 | 5 | Localization | **Done for en + es.** The string table, the ARB files, the parity test, RTL-ready layout, locale-aware clock/date/countdown, localized resolver patterns with honest fallthrough. Next languages: §4.2. |
 | 6 | Any device | **Not done.** No device, no profiler. The plans (2 GB budget, layout matrix, per-ABI size) are described, nothing is measured. |
-| 7 | Trust | **Done in the code.** The privacy screen, the cloud switch (now real), one-action erase, diagnostics with no personal data, feedback with version, attribution, the crisis line, the fixed offline line. Store-facing privacy policy and Data Safety answers still need writing by the owner. |
-| 8 | Distribution | **Not done.** No keystore, no listings, no CI (see below), no rollout plan executed. |
+| 7 | Trust | **Done in the code** -- the privacy screen, the cloud switch (now real), one-action erase, diagnostics with no personal data, feedback with the real version, attribution, the crisis line, the fixed offline line. The store-facing half is drafted: `docs/privacy.md` (written from the code, with the file names that back each claim, marked for review) and `docs/store-listing.md` (listing copy plus the Data Safety answers). Both need the owner's decisions before publication, and the privacy policy needs a stable URL. |
+| 8 | Distribution | **Drafted, not done.** Listing copy, screenshots script and Data Safety answers are in `docs/store-listing.md`; the version now comes from the app rather than a hardcoded string. Still missing: a keystore and a signed build (never attempted here), CI (see below), localized metadata, the feature graphic, and the staged rollout. |
 | 9 | Phase 1 carry-overs | **Done** in `15a35e6` and this change. |
+
+### The two documents that need a decision before they are published
+
+`docs/privacy.md` and `docs/store-listing.md` are written to match the code, and
+both contain `[needs owner input]` markers where matching the code is not
+enough: the shared service's hostname, a stable privacy-policy URL, the Play
+content-rating questionnaire, and a native speaker's review of the Spanish
+listing copy. Neither is published anywhere.
 
 ### CI
 

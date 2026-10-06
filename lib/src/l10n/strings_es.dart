@@ -166,7 +166,8 @@ const Map<String, String> stringsEs = <String, String>{
   'privacyEventWhere': 'El lugar del evento, si la entrada tiene uno.',
   'privacyBattery': 'Tu nivel de batería y si se está cargando.',
   'privacyWeather': 'La temperatura y el tiempo actuales donde estás, de '
-      'Open-Meteo.',
+      'Open-Meteo. Tu posición se redondea antes a unos 100 metros, que es '
+      'todo lo que necesita un pronóstico.',
   'privacyTime': 'Tu hora local.',
   'privacyDeviceId': 'Un identificador aleatorio de esta instalación, usado '
       'solo para contar solicitudes y que un teléfono no consuma todo. Puedes '

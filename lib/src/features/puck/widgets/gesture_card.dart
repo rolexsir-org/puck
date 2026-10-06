@@ -25,34 +25,36 @@ class GestureCard extends StatelessWidget {
 
     return RepaintBoundary(
       child: AppearIn(
-        child: Semantics(
-          container: true,
-          // A card that must be tapped away is a button; a screen reader user
-          // has to be able to do that with the same single tap everyone else
-          // uses.
-          button: true,
-          label: s.firstRunTitle,
-          hint: s.firstRunDismiss,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onDismiss,
-          child: ExcludeSemantics(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onDismiss,
-              child: PuckCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(s.firstRunTitle, style: PuckType.primary),
-                    const SizedBox(height: 12),
-                    _GestureLine(text: s.firstRunTap),
-                    _GestureLine(text: s.firstRunDoubleTap),
-                    _GestureLine(text: s.firstRunHold),
-                    _GestureLine(text: s.firstRunSwipe),
-                    const SizedBox(height: 10),
-                    Text(s.firstRunDismiss, style: PuckType.label),
-                  ],
-                ),
+          child: Semantics(
+            container: true,
+            // A card that must be tapped away is a button, so it says so.
+            button: true,
+            label: s.firstRunTitle,
+            hint: s.firstRunDismiss,
+            onTap: onDismiss,
+            // Deliberately *not* wrapped in `ExcludeSemantics`, which is what
+            // the bubble does. The bubble is one control with one name; this
+            // card is information whose whole purpose is the four lines below
+            // the title. Collapsing it to "Four things, one button" would
+            // announce the heading and swallow the content -- the one thing a
+            // user of this card came for.
+            child: PuckCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(s.firstRunTitle, style: PuckType.primary),
+                  const SizedBox(height: 12),
+                  _GestureLine(text: s.firstRunTap),
+                  _GestureLine(text: s.firstRunDoubleTap),
+                  _GestureLine(text: s.firstRunHold),
+                  _GestureLine(text: s.firstRunSwipe),
+                  const SizedBox(height: 10),
+                  Text(s.firstRunDismiss, style: PuckType.label),
+                ],
               ),
             ),
           ),

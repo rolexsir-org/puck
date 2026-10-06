@@ -521,7 +521,8 @@ class PuckStrings {
     'privacyEventWhere': 'The event location, if the calendar entry has one.',
     'privacyBattery': 'Your battery level and whether it is charging.',
     'privacyWeather': 'The current temperature and weather where you are, from '
-        'Open-Meteo.',
+        'Open-Meteo. Your position is rounded to about 100 metres first, which '
+        'is as much as a weather forecast needs.',
     'privacyTime': 'Your local time.',
     'privacyDeviceId': 'A random ID for this app install, used only to count '
         'requests so one phone cannot use everything. Reset it any time.',
