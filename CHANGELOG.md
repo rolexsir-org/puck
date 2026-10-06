@@ -39,9 +39,12 @@ only says "fixes" is an entry nobody can act on later.
 * **Cost control for cloud answers**: a polish is skipped when the local line
   is already short, at most one per 20 seconds, and reused from a bounded cache
   for 10 minutes.
-* **Tests**: 101 cases across 13 files, including the SOS failure states, the
-  string-table contract, contrast arithmetic, the safety phrases, and the
-  resolver's behaviour in a language it does not know.
+* **Tests**: 128 cases across 15 files, including the SOS failure states, the
+  string-table contract, contrast arithmetic, the safety phrases, the resolver
+  in Spanish and in a language it does not know, the layout matrix
+  (three screen sizes × four text scales), and settings behaviour end to end.
+  The 14 cases in `worker/test/` are the only ones that have actually been
+  executed (see FINDINGS.md §1).
 
 ### Changed
 
@@ -80,6 +83,22 @@ only says "fixes" is an entry nobody can act on later.
 * **A rejected API key produced a raw English provider message on the card.**
   It has its own localized line now; every other failure gets the one honest
   offline line.
+* **Spanish either-or questions were never resolved locally.** `_pickOne` split
+  only on the English `or`, so "té o café" fell through to the model or the
+  offline line. It now uses the locale's conjunction (including Spanish's `u`
+  before an o- sound).
+* **`¿cuánto es 12 más 4?` was not computed.** The inverted question mark was
+  stripped *after* the spoken-arithmetic prefix, so the phrase never normalised
+  and a question the device can answer exactly went to a language model. Also
+  `100 dividido entre 8` normalised to `100 //8`, which is not arithmetic.
+* **A language Puck does not ship got English pattern matching.** `_patterns`
+  fell back to the English table while its own comment promised the opposite,
+  so a phone whose locale was German answered English keywords while showing an
+  English UI for the rest — the wrong answer, confidently. It now matches
+  nothing, which is the documented behaviour.
+* **The one-time gesture card hid its own contents from a screen reader** by
+  excluding its children the way the bubble does; it announces its four lines
+  now.
 * **`dart:math` was seeded non-deterministically in tests**, error messages used
   `!` on nullable values, and `ref.onDispose` was missing on two providers.
   (Fixed in `15a35e6` and this change.)

@@ -47,9 +47,11 @@ Everything below in §2 is what *was* run.
 | `python3 tools/gen_arb.py` | `lib/l10n/app_en.arb: 152 keys` / `lib/l10n/app_es.arb: 152 keys` | The ARB files the translator sees are regenerated from the Dart maps, and both locales are complete (the script refuses to write a locale with missing or extra keys). |
 | ARB ↔ map comparison, both directions | `en 152 / es 152, missing [], extra []` | The same thing, checked independently of the generator. |
 | Key-reference scan (`text('…')` / `format('…')` in `puck_strings.dart` vs the map) | `referenced 150, missing []` | Every key the code asks for exists. **This found a real bug** (§3.1). |
+| `python3 tools/check_regexes.py .` | `40 RegExp literals checked, 0 suspicious, 1 not checkable` | Every regex literal in the tree is extracted (including adjacent-literal runs) and checked for the raw-string double-backslash mistake, which matches the letter `s` instead of whitespace. The not-checkable one is the Unicode property class in `_pickOne`, which Python's `re` lacks. The checker's own self-test is in its docstring: planting the bug makes it exit 1. |
 | The safety phrase list, ported to Python and run against 18 crisis phrases + 13 ordinary queries | `patterns found: 53`, `unmatched crisis phrases: []`, `false positives: []` | The phrase list in `PuckSafety` matches what it says it matches and nothing else among ordinary queries. Python's regex engine and Dart's agree on this subset. |
 | WCAG contrast arithmetic, in Python, then asserted in `test/core/contrast_math_test.dart` | see §3.2 | The palette ratios in the code comment are the actual ratios. |
 | `node --test worker/test/*.test.mjs` | `tests 14 / pass 14 / fail 0` | **The shared answer service's rules, executed.** Kill switch, per-device hourly limit, global daily ceiling, request-shape validation, refusal to forward a non-Puck prompt, no upstream-body leakage, and "the only keys written are counters". This is the one part of the tree where "it passes" is an honest sentence. |
+| The layout matrix and a11y widget tests | **written, not run** | `test/widget/layout_test.dart` (3 screen sizes × 4 text scales, 48dp targets) and `test/widget/settings_test.dart` (hold length, cloud switch, erase-with-confirmation, Spanish screen, semantics labels) exist. No Flutter SDK here, so they have not executed. |
 | `grep`/`sed` over the tree | various | The contradictions in §3. |
 | `git log`, `git status` | 5 commits, clean tree | The work is committed in area-scoped commits. |
 
@@ -65,19 +67,24 @@ directive that the grammar in this repo's CI would reject.
   things the lints care about in the files I touched (trailing commas, package
   imports and their ordering, `unawaited`, `prefer_final_locals`, unused
   imports), and I fixed what I found, but **hand-checking is not analyzing.**
-* **`flutter test` — not run.** 101 test cases across 13 files exist. Several
-  are new this session and are the only regression protection for the fixes in
-  §3. **They have never executed.** Expect to have to fix some of them on first
-  run — a fake that does not quite satisfy an interface, or a `pump` duration
-  that needs adjusting. Nothing in this document claims a test passes.
-* **`dart format` — not run.** `dart format --set-exit-if-changed .` **will
-  fail**: 42 lines in `lib/` and `test/` exceed 80 columns, most of them
-  pre-existing (long string literals in `prompt.dart` and `format_test.dart`,
-  the `clamp` expressions in `puck_controller.dart`). Some are string literals
-  the formatter cannot split; others it will reflow. Run `dart format .` once
-  and commit the result as a mechanical commit before wiring CI to
-  `--set-exit-if-changed`, or the first CI run will be red for a reason that
-  looks like a style argument.
+* **`flutter test` — not run.** 128 test cases across 15 files exist. Several
+  are new and are the only regression protection for the fixes in §3. **They
+  have never executed.** Expect to have to fix some of them on first run — a
+  fake that does not quite satisfy an interface, a `pump` duration that needs
+  adjusting, or a widget-test API (`tester.platformDispatcher.localeTestValue`,
+  used in `settings_test.dart` to prove the Spanish screen) that has moved
+  between Flutter versions. Nothing in this document claims a test passes.
+  Everything in `worker/test/` is the exception: those 14 cases run and pass
+  (above).
+* **`dart format` — not run, and cannot be run here.** Every line of *code* in
+  `lib/` and `test/` now fits in 80 columns; the 12 remaining long lines are
+  inside the two multi-line prompt literals in `lib/src/data/llm/prompt.dart`
+  (lines that are prose sent to a model, which the formatter does not split
+  anyway). That is a column check, not a formatter run, and it is not the same
+  thing: `dart format` may still reflow something in a file nobody has
+  hand-formatted, so `dart format --output=none --set-exit-if-changed .` may
+  well fail on first run. Run `dart format .` once and commit the result as a
+  mechanical commit before wiring CI to `--set-exit-if-changed`.
 * **`flutter build apk --debug` / `appbundle --release` — not run.** No SDK, no
   Android SDK, no keystore. `COMPILE_NOTES.md` records the two compile passes
   that *were* possible earlier (a Gradle configuration that fits in 2 GB), and
@@ -332,7 +339,7 @@ observation that would settle it.
 | ----- | ------ | ---------- |
 | The app compiles and runs | **unverified** -- no SDK, never built | `flutter pub get && flutter analyze && flutter build apk --debug` |
 | The 101 test cases pass | **unverified** -- never executed | `flutter test` |
-| Code is `dart format` clean | **known false** -- 42 lines over 80 columns | `dart format .` then a mechanical commit |
+| Code is `dart format` clean | **unverified** -- all code lines fit in 80 columns, but the formatter has never run | `dart format .` then a mechanical commit |
 | Four gestures work with TalkBack, unaided, at 2.0× type | **by construction only** | A person with a device, screen reader on, text scale 2.0 |
 | Nothing is clipped at 2.0× scale | **by construction only** | Screenshots at 1.0/1.3/1.6/2.0 on 320×568, 412×915, 600×960 |
 | The SOS path works with no SIM / airplane mode / GPS off | **unit-tested for the Dart halves**, not on a modem | A real phone in airplane mode |
@@ -390,7 +397,7 @@ habit (tap and hold only).
 | 3 | Discoverability | **Done in the code.** One-time gesture card after the first served tap; the hold ring that disappears once the hold has been found; a full action list for assistive technology; no tutorial, no onboarding. |
 | 4 | Accessibility | **Done in the code** except the parts that need a device: semantics on everything, 48dp targets, dynamic-type audit documented but unmeasured, contrast fixed and tested, reduce-motion honoured, nothing carried by colour or vibration alone. |
 | 5 | Localization | **Done for en + es.** The string table, the ARB files, the parity test, RTL-ready layout, locale-aware clock/date/countdown, localized resolver patterns with honest fallthrough. Next languages: §4.2. |
-| 6 | Any device | **Not done.** No device, no profiler. The plans (2 GB budget, layout matrix, per-ABI size) are described, nothing is measured. |
+| 6 | Any device | **Partly done, and the measurable half is written down.** The layout matrix (320x568 / 412x915 / 600x960 x 1.0/1.3/1.6/2.0 text scale) and the 48dp target check are `test/widget/layout_test.dart`; the speech path already degrades without blocking. **Not done:** cold start, frame times, memory over 50 cycles and per-ABI size -- all need a device and a profiler, and none was measured. |
 | 7 | Trust | **Done in the code** -- the privacy screen, the cloud switch (now real), one-action erase, diagnostics with no personal data, feedback with the real version, attribution, the crisis line, the fixed offline line. The store-facing half is drafted: `docs/privacy.md` (written from the code, with the file names that back each claim, marked for review) and `docs/store-listing.md` (listing copy plus the Data Safety answers). Both need the owner's decisions before publication, and the privacy policy needs a stable URL. |
 | 8 | Distribution | **Drafted, not done.** Listing copy, screenshots script and Data Safety answers are in `docs/store-listing.md`; the version now comes from the app rather than a hardcoded string. Still missing: a keystore and a signed build (never attempted here), CI (see below), localized metadata, the feature graphic, and the staged rollout. |
 | 9 | Phase 1 carry-overs | **Done** in `15a35e6` and this change. |
