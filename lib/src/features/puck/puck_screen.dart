@@ -4,12 +4,17 @@ import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/format.dart';
 import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/data/models/context.dart';
+import 'package:puck/src/core/motion.dart';
+import 'package:puck/src/data/repositories/settings_repository.dart';
 import 'package:puck/src/features/puck/puck_controller.dart';
 import 'package:puck/src/features/puck/widgets/context_card.dart';
+import 'package:puck/src/features/puck/widgets/gesture_card.dart';
 import 'package:puck/src/features/puck/widgets/intent_bar.dart';
 import 'package:puck/src/features/puck/widgets/joke_card.dart';
+import 'package:puck/src/features/puck/widgets/puck_actions.dart';
 import 'package:puck/src/features/puck/widgets/puck_bubble.dart';
 import 'package:puck/src/features/puck/widgets/sos_sheet.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 import 'package:puck/src/providers.dart';
 
 /// The whole app, on one screen.
@@ -49,7 +54,16 @@ class _PuckHomeState extends ConsumerState<PuckHome>
   @override
   Widget build(BuildContext context) {
     final PuckController controller = ref.watch(puckControllerProvider);
-    final bool overlaysOpen = controller.intentBarOpen || controller.isSosActive;
+    final bool overlaysOpen = controller.intentBarOpen ||
+        controller.isSosActive ||
+        controller.actionsOpen;
+    final SettingsRepository settings = ref.watch(settingsProvider);
+
+    // The controller is app-scoped and has no `Localizations` scope of its
+    // own, so the resolved language is pushed into it here -- the one place
+    // that knows what the user's phone asked for.
+    controller.setLocale(Localizations.localeOf(context));
+    controller.setReducedMotion(reduceMotion(context));
 
     return Scaffold(
       // The keyboard resize is the keyboard animation; the bar rides it.
@@ -66,15 +80,43 @@ class _PuckHomeState extends ConsumerState<PuckHome>
               if (!overlaysOpen)
                 _PanelLayer(controller: controller, canvas: canvas),
 
-              _BubbleLayer(controller: controller),
+              _BubbleLayer(
+                controller: controller,
+                holdDuration: settings.sosHold,
+                showRestingRing: !settings.holdDiscovered,
+              ),
 
               if (!overlaysOpen) const _Footer(),
+
+              // The way in for a screen reader or switch user. It exists only
+              // while an assistive technology is running, so it is invisible
+              // to everyone else -- which is what keeps it from becoming a
+              // menu.
+              if (!overlaysOpen && assistiveTechActive(context))
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 56,
+                  child: ActionsAffordance(onOpen: controller.openActions),
+                ),
 
               if (controller.intentBarOpen)
                 Positioned.fill(
                   child: IntentBar(
                     controller: controller,
                     bubbleCenter: _bubbleCenter(controller, canvas),
+                  ),
+                ),
+
+              if (controller.actionsOpen)
+                Positioned.fill(
+                  child: PuckActionsSheet(
+                    controller: controller,
+                    onOpenSettings: () =>
+                        Navigator.of(context).pushNamed('/settings'),
+                    onOpenPrivacy: () =>
+                        Navigator.of(context).pushNamed('/privacy'),
+                    onClose: controller.closeActions,
                   ),
                 ),
 
@@ -111,9 +153,15 @@ class _Backdrop extends StatelessWidget {
 }
 
 class _BubbleLayer extends StatelessWidget {
-  const _BubbleLayer({required this.controller});
+  const _BubbleLayer({
+    required this.controller,
+    required this.holdDuration,
+    required this.showRestingRing,
+  });
 
   final PuckController controller;
+  final Duration holdDuration;
+  final bool showRestingRing;
 
   @override
   Widget build(BuildContext context) {
@@ -135,6 +183,9 @@ class _BubbleLayer extends StatelessWidget {
         onDragUpdate: controller.onDragUpdate,
         onDragEnd: controller.onDragEnd,
         onRelease: controller.onBubbleRelease,
+        holdDuration: holdDuration,
+        showRestingRing: showRestingRing,
+        onShowActions: controller.openActions,
       ),
     );
   }
@@ -187,7 +238,7 @@ class _PanelLayer extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: PuckConstants.cardMaxWidth),
             child: AnimatedSwitcher(
-              duration: PuckConstants.cardOut,
+              duration: motionDuration(context, PuckConstants.cardOut),
               switchInCurve: PuckConstants.moveCurve,
               switchOutCurve: PuckConstants.moveCurve,
               transitionBuilder:
@@ -219,6 +270,11 @@ class _PanelLayer extends StatelessWidget {
         return joke == null
             ? _empty
             : JokeCard(key: const ValueKey<String>('joke'), text: joke);
+      case PanelKind.gestures:
+        return GestureCard(
+          key: const ValueKey<String>('gestures'),
+          onDismiss: controller.dismissGestureCard,
+        );
       case PanelKind.answer:
         // Answers render inside the IntentBar, which reads
         // `controller.intent` directly; the controller never assigns this
@@ -244,15 +300,27 @@ class _Footer extends StatelessWidget {
       child: SafeArea(
         top: false,
         minimum: const EdgeInsets.only(bottom: 6),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => Navigator.of(context).pushNamed('/settings'),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            child: Text(
-              'Settings',
-              textAlign: TextAlign.center,
-              style: PuckType.label.copyWith(color: PuckPalette.textMuted),
+        child: Semantics(
+          button: true,
+          label: PuckStrings.of(context).settingsTitle,
+          child: ExcludeSemantics(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).pushNamed('/settings'),
+              // 48dp minimum: this is a real target for a real thumb, not a
+              // caption that happens to be tappable.
+              child: SizedBox(
+                height: 48,
+                child: Center(
+                  child: Text(
+                    PuckStrings.of(context).settingsTitle,
+                    textAlign: TextAlign.center,
+                    style: PuckType.label.copyWith(
+                      color: PuckPalette.textSec,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
