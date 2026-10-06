@@ -95,19 +95,33 @@ class LocalIntentResolver {
 
   /// Per-language pattern sets. A language that is not listed matches
   /// nothing, which is the honest failure.
+  ///
+  /// Note what this is *not*: a fallback to English. Returning the English
+  /// patterns here would mean a phone whose UI is in a language Puck does not
+  /// ship gets an answer to an English phrase it never asked in -- the wrong
+  /// answer, delivered confidently, which is the failure mode this resolver
+  /// exists to avoid. (That is a real bug this method used to have: it ended
+  /// `return table['en']`, contradicting this comment. `test/core/
+  /// local_resolver_test.dart` now pins both directions.)
+  ///
+  /// The common path is unaffected: `app.dart`'s `localeResolutionCallback`
+  /// maps an unshipped phone language to `en` before the app ever asks, so a
+  /// German phone that types English gets English answers through an explicit
+  /// `'en'` lookup rather than through this guard.
   List<String> _patterns(String kind) {
     final Map<String, List<String>>? table = _patternTable[kind];
     if (table == null) return const <String>[];
-    final List<String>? exact = table[_locale.languageCode];
-    if (exact != null) return exact;
-    return table['en'] ?? const <String>[];
+    return table[_locale.languageCode] ?? const <String>[];
   }
 
   static const Map<String, Map<String, List<String>>> _patternTable =
       <String, Map<String, List<String>>>{
     'coin': <String, List<String>>{
       'en': <String>[r'\b(coin|flip|heads|tails|toss)\b'],
-      'es': <String>[r'\b(moneda|monedas|cara o cruz|cruz o cara|lanza|lanzo|echar a suertes|suerte)\b'],
+      'es': <String>[
+        r'\b(moneda|monedas|cara o cruz|cruz o cara|lanza|lanzo|'
+        r'echar a suertes|suerte)\b',
+      ],
     },
     'diceWords': <String, List<String>>{
       'en': <String>[r'\b(dice|die|roll)\b'],
@@ -180,19 +194,23 @@ class LocalIntentResolver {
     // Spoken arithmetic, in the languages Puck ships. The operator words are
     // replaced rather than the question being pattern-matched, so both
     // languages share one grammar and one evaluator.
+    // Punctuation comes off *first*. It used to come off after the prefix was
+    // stripped, so "¿cuánto es 12 más 4?" never lost its opening inverted
+    // question mark, never matched the prefix, kept the letters, and fell
+    // through to the model -- a Spanish arithmetic question that the device
+    // can answer exactly, handed to a language model that will guess.
     final String normalised = q
+        .replaceAll('¿', '')
+        .replaceAll('?', '')
+        .replaceAll('×', '*')
+        .replaceAll('÷', '/')
         .replaceAll(
           RegExp(
-            r"^(what'?s|what is|whats|calculate|compute|"
-            "cu[aá]nto es|calcula|cu[aá]nto son)"
-            r'\s+',
+            r"^(?:what'?s|what is|whats|calculate|compute|"
+            r"cu[aá]nto es|cu[aá]nto son|calcula)\s+",
           ),
           '',
         )
-        .replaceAll('?', '')
-        .replaceAll('¿', '')
-        .replaceAll('×', '*')
-        .replaceAll('÷', '/')
         .replaceAll(RegExp(r'\btimes\b'), '*')
         .replaceAll(RegExp(r'\bmultiplied by\b'), '*')
         .replaceAll(RegExp(r'\bplus\b'), '+')
@@ -200,11 +218,21 @@ class LocalIntentResolver {
         .replaceAll(RegExp(r'\bdivided by\b'), '/')
         .replaceAll(RegExp(r'\bm[aá]s\b'), '+')
         .replaceAll(RegExp(r'\bmenos\b'), '-')
-        .replaceAll(RegExp(r'\b(?:dividido|entre)\s+por\b'), '/')
+        // "dividido por", "dividido entre" and "entre" are all how Spanish
+        // is actually written and spoken. One rule, because two rules turned
+        // "100 dividido entre 8" into "100 //8" -- which is not arithmetic.
+        .replaceAll(
+          RegExp(r'\b(?:dividido|entre)(?:\s+entre)?\s+(?:por\s+)?'),
+          '/',
+        )
         .replaceAll(RegExp(r'\bmultiplicado por\b'), '*')
         .replaceAll(RegExp(r'\bpor\b'), '*')
         .replaceAll(RegExp(r'\bequisdividido\b'), '/')
         .replaceAll('x', '*')
+        // Collapse the spaces the replacements leave behind, so the evaluator
+        // and any error message see "100 / 8" rather than "100 / 8" with
+        // an extra gap.
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
     if (!ExpressionEvaluator.looksLikeMaths(normalised)) return null;
@@ -253,15 +281,27 @@ class LocalIntentResolver {
   /// nonsense.
   String? _pickOne(String q) {
     final String s = q
+        .replaceAll(RegExp(r'^[¿\s]*'), '')
         .replaceAll(
-          RegExp(r'^(?:should i (?:pick|choose|get|have|take)|'
-              r'which (?:one|is better)[,:]?|pick|choose|either)\s+'),
+          RegExp(
+            r'^(?:should i (?:pick|choose|get|have|take)|'
+            r'which (?:one|is better)[,:]?|pick|choose|either|'
+            r'deber[ií]a (?:elegir|escoger|tomar)|'
+            r'(?:elijo|elige|escoge|prefiero|quiero))\s+',
+          ),
           '',
         )
         .replaceAll(RegExp(r'[?!.,\s]+$'), '')
         .trim();
 
-    final List<String> parts = s.split(RegExp(r'\s+or\s+'));
+    // The conjunction is a word in the language, not a symbol: Spanish asks
+    // "té o café" (and "siete u ocho", where "o" becomes "u" before an
+    // o- sound), English asks "tea or coffee". Splitting only on `or` meant
+    // every Spanish either/or fell through to the model -- or to the offline
+    // line, which is a worse answer to a question the device can decide.
+    final String conjunction =
+        _locale.languageCode == 'es' ? r'\s+(?:o|u)\s+' : r'\s+or\s+';
+    final List<String> parts = s.split(RegExp(conjunction));
     if (parts.length != 2) return null;
 
     final String a = parts[0].trim();
