@@ -456,7 +456,8 @@ class PuckStrings {
     'sosEmergencyFallbackNote': 'Local emergency number. Opens the dialer — '
         'nothing is dialled for you.',
     'sosEmergencyRegionalNote': 'Could not read your region, so this is the '
-        'standard emergency line. Opens the dialer — nothing is dialled for you.',
+        'standard emergency line. Opens the dialer — nothing is dialled for '
+        'you.',
     'callEmergency': 'CALL %1',
     'callEmergencySemantics': 'Call emergency services, %1',
     'settingsTitle': 'Settings',
@@ -479,7 +480,8 @@ class PuckStrings {
     'apiKeyHint': 'Paste a key',
     'paste': 'Paste',
     'apiKeyNote': 'Optional and advanced. With your own key, answers come '
-        'straight from your own Groq account and the shared service is not used.',
+        'straight from your own Groq account and the shared service is not '
+        'used.',
     'releaseCancelsOne': 'Puck cancels itself when you release early. It has '
         'done that %1 time.',
     'releaseCancelsMany': 'Puck cancels itself when you release early. It has '

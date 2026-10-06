@@ -179,7 +179,9 @@ class PuckController extends ChangeNotifier {
   double get _maxX => _canvas.width <= 0
       ? 0
       : PuckFormat.clamp(
-          _canvas.width - PuckConstants.bubbleSize - PuckConstants.bubbleMargin * 2,
+          _canvas.width -
+              PuckConstants.bubbleSize -
+              PuckConstants.bubbleMargin * 2,
           0,
           double.infinity,
         );
@@ -187,7 +189,9 @@ class PuckController extends ChangeNotifier {
   double get _maxY => _canvas.height <= 0
       ? 0
       : PuckFormat.clamp(
-          _canvas.height - PuckConstants.bubbleSize - PuckConstants.bubbleMargin * 2,
+          _canvas.height -
+              PuckConstants.bubbleSize -
+              PuckConstants.bubbleMargin * 2,
           0,
           double.infinity,
         );

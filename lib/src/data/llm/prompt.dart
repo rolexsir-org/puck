@@ -177,22 +177,23 @@ Length: 10 words maximum. No trailing period needed.''';
     if (event != null) {
       lines.add(
         'calendar_event: ${event.title} — '
-        '${event.isInProgress(snapshot.now) ? 'started ${PuckFormat.countdown(event.until(snapshot.now).abs())} ago' : 'starts ${PuckFormat.countdown(event.until(snapshot.now))}'}'
-        '${event.location != null && event.location!.isNotEmpty ? ' @ ${event.location}' : ''}',
+        '${_when(event, snapshot.now)}'
+        '${_at(event.location)}',
       );
     }
 
     final BatterySnapshot? battery = snapshot.battery;
     if (battery != null) {
       lines.add(
-        'battery: ${battery.level}%${battery.charging ? ', charging' : ', not charging'}',
+        'battery: ${battery.level}%${_charging(battery.charging)}',
       );
     }
 
     final WeatherSnapshot? weather = snapshot.weather;
     if (weather != null) {
       lines.add(
-        'weather: ${weather.temperatureC.round()}C, ${WeatherCodes.describe(weather.code)}',
+        'weather: ${weather.temperatureC.round()}C, '
+        '${WeatherCodes.describe(weather.code)}',
       );
     }
 
@@ -261,4 +262,24 @@ Length: 15 words maximum. The answer is rendered on one small card for a few sec
     // deterministic line is already on screen behind it.
     return words <= wordLimitFor(mode) + validationTolerance;
   }
+
+  /// "started 20m ago" / "starts in 20m", as one short clause.
+  ///
+  /// Split out of the envelope so the line stays inside the column limit and
+  /// so the two directions of the verb are one expression rather than two
+  /// almost-identical inline branches.
+  static String _when(CalendarEvent event, DateTime now) {
+    final Duration until = event.until(now);
+    if (event.isInProgress(now)) {
+      return 'started ${PuckFormat.countdown(until.abs())} ago';
+    }
+    return 'starts ${PuckFormat.countdown(until)}';
+  }
+
+  /// " @ The kitchen", or nothing at all.
+  static String _at(String? location) =>
+      location != null && location.isNotEmpty ? ' @ $location' : '';
+
+  static String _charging(bool charging) =>
+      charging ? ', charging' : ', not charging';
 }

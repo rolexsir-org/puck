@@ -45,8 +45,14 @@ void main() {
 
     test('names today, tomorrow and yesterday', () {
       expect(PuckFormat.relativeDay(DateTime(2026, 9, 13, 1), now), 'today');
-      expect(PuckFormat.relativeDay(DateTime(2026, 9, 14, 23), now), 'tomorrow');
-      expect(PuckFormat.relativeDay(DateTime(2026, 9, 12, 23), now), 'yesterday');
+      expect(
+        PuckFormat.relativeDay(DateTime(2026, 9, 14, 23), now),
+        'tomorrow',
+      );
+      expect(
+        PuckFormat.relativeDay(DateTime(2026, 9, 12, 23), now),
+        'yesterday',
+      );
     });
 
     test('counts beyond that', () {
@@ -56,15 +62,27 @@ void main() {
 
     test('compares calendar days, not 24-hour windows', () {
       // 23:59 today is still "today"; 00:01 tomorrow is "tomorrow".
-      expect(PuckFormat.relativeDay(DateTime(2026, 9, 13, 23, 59), now), 'today');
-      expect(PuckFormat.relativeDay(DateTime(2026, 9, 14, 0, 1), now), 'tomorrow');
+      expect(
+        PuckFormat.relativeDay(DateTime(2026, 9, 13, 23, 59), now),
+        'today',
+      );
+      expect(
+        PuckFormat.relativeDay(DateTime(2026, 9, 14, 0, 1), now),
+        'tomorrow',
+      );
     });
   });
 
   group('the emergency SMS body parts', () {
     test('coordinates read like a person reads them out loud', () {
-      expect(PuckFormat.coordsDegrees(34.052234, -118.243685), '34.0522°N, 118.2437°W');
-      expect(PuckFormat.coordsDegrees(-33.8674, 151.2078), '33.8674°S, 151.2078°E');
+      expect(
+        PuckFormat.coordsDegrees(34.052234, -118.243685),
+        '34.0522°N, 118.2437°W',
+      );
+      expect(
+        PuckFormat.coordsDegrees(-33.8674, 151.2078),
+        '33.8674°S, 151.2078°E',
+      );
     });
 
     test('the map link is short and schemeless', () {
@@ -82,7 +100,10 @@ void main() {
 
     test('the stamp reads like a text message, not a log line', () {
       // Thursday 15 Jan 2026, 3:14 PM.
-      expect(PuckFormat.stamp(DateTime(2026, 1, 15, 15, 14)), '3:14 PM · Thu Jan 15');
+      expect(
+        PuckFormat.stamp(DateTime(2026, 1, 15, 15, 14)),
+        '3:14 PM · Thu Jan 15',
+      );
     });
   });
 

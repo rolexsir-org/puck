@@ -96,7 +96,8 @@ const Map<String, String> stringsEs = <String, String>{
   'sosDialerOpen': 'Marcador abierto — pulsa llamar',
   'sosNoDialer': 'Este dispositivo no tiene marcador',
   'sosCounting': 'SOS en %1',
-  'sosCountingAnnouncement': 'SOS en %1 segundos. Levanta el dedo para cancelar.',
+  'sosCountingAnnouncement': 'SOS en %1 segundos. Levanta el dedo para '
+      'cancelar.',
   'sosRingWaiting': 'Esperando la ubicación',
   'sosRingFound': 'Ubicación encontrada',
   'sosEmergencyFallbackNote': 'Número de emergencias local. Abre el marcador: '
@@ -119,8 +120,8 @@ const Map<String, String> stringsEs = <String, String>{
       'enviar. Nunca se envía solo. Sin contacto, Puck ofrece el número de '
       'emergencias local.',
   'advancedTitle': 'Avanzado',
-  'advancedNote': 'Puck responde por sí solo con un servicio compartido. No hay '
-      'nada que configurar.',
+  'advancedNote': 'Puck responde por sí solo con un servicio compartido. '
+      'No hay nada que configurar.',
   'apiKeyTitle': 'Usar mi propia clave (opcional)',
   'apiKeyHint': 'Pega una clave',
   'paste': 'Pegar',
@@ -162,7 +163,8 @@ const Map<String, String> stringsEs = <String, String>{
   'privacySendsTitle': 'Se envía con una pregunta',
   'privacyQuestion': 'La pregunta que escribiste o dijiste.',
   'privacyEventTitle': 'El título de tu próximo evento, si hay uno cerca.',
-  'privacyEventWhen': 'Si ese evento ya empezó y cuánto falta para que empiece.',
+  'privacyEventWhen': 'Si ese evento ya empezó y cuánto falta para que '
+      'empiece.',
   'privacyEventWhere': 'El lugar del evento, si la entrada tiene uno.',
   'privacyBattery': 'Tu nivel de batería y si se está cargando.',
   'privacyWeather': 'La temperatura y el tiempo actuales donde estás, de '

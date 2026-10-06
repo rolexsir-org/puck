@@ -65,7 +65,10 @@ void main() {
     );
 
     expect(provider.isConfigured, isTrue);
-    expect(await provider.complete(intent('why is the sky blue')).join(), 'Blue.');
+    expect(
+      await provider.complete(intent('why is the sky blue')).join(),
+      'Blue.',
+    );
   });
 
   test('the request carries the anonymous device id and no secret', () async {
@@ -171,7 +174,9 @@ void main() {
     final ProxyLlmProvider provider = ProxyLlmProvider(
       settings: await repository(),
       baseUrl: 'https://answers.example.org',
-      client: MockClient((http.Request request) async => http.Response('', 200)),
+      client: MockClient(
+        (http.Request request) async => http.Response('', 200),
+      ),
     );
 
     await expectLater(

@@ -31,14 +31,23 @@ class _ScriptedLlm implements LlmProvider {
 }
 
 void main() {
-  IntentRouter routerFor(List<String> tokens, {Object? failure}) => IntentRouter(
+  IntentRouter routerFor(
+    List<String> tokens, {
+    Object? failure,
+  }) =>
+      IntentRouter(
         llm: _ScriptedLlm(tokens, failure: failure),
         local: LocalIntentResolver(),
       );
 
   Future<String> answer(List<String> tokens, {Object? failure}) =>
       routerFor(tokens, failure: failure)
-          .resolveRequest(const LlmRequest(mode: PuckMode.intent, query: 'why is the sky blue'))
+          .resolveRequest(
+            const LlmRequest(
+              mode: PuckMode.intent,
+              query: 'why is the sky blue',
+            ),
+          )
           .join();
 
   group('the intent stream cannot put banned text on the card', () {
@@ -50,13 +59,15 @@ void main() {
     });
 
     test('a runaway answer is cut at the word budget', () async {
-      final List<String> tokens = List<String>.generate(40, (int i) => ' word$i');
+      final List<String> tokens =
+          List<String>.generate(40, (int i) => ' word$i');
       final String out = await answer(tokens);
       final int words =
           out.split(RegExp(r'\s+')).where((String w) => w.isNotEmpty).length;
 
       expect(words, lessThanOrEqualTo(
-        PuckPrompt.wordLimitFor(PuckMode.intent) + PuckPrompt.validationTolerance,
+        PuckPrompt.wordLimitFor(PuckMode.intent) +
+            PuckPrompt.validationTolerance,
       ));
     });
 

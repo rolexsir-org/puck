@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:puck/app.dart';
 import 'package:puck/src/features/puck/widgets/context_card.dart';
 import 'package:puck/src/features/puck/widgets/joke_card.dart';
+import 'package:puck/src/features/privacy/privacy_screen.dart';
 import 'package:puck/src/features/puck/widgets/puck_bubble.dart';
 import 'package:puck/src/features/settings/settings_screen.dart';
 import 'package:puck/src/providers.dart';
@@ -65,11 +66,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SettingsScreen), findsOneWidget);
-    expect(find.text('API key'), findsOneWidget);
+    // The order on this screen is the product decision, so the test asserts
+    // the order: what leaves the phone is first, the emergency contact second,
+    // the optional key is last, and the count of self-cancelled SOS attempts is
+    // visible rather than mysterious.
+    expect(find.text('Use my own key (optional)'), findsOneWidget);
     expect(find.text('Emergency contact'), findsOneWidget);
-    expect(
-      find.textContaining('It has done that 1 time.'),
-      findsOneWidget,
-    );
+    expect(find.text('What leaves your phone'), findsOneWidget);
+    expect(find.textContaining('It has done that 1 time.'), findsOneWidget);
+
+    // The privacy screen the paragraph above describes is actually reachable:
+    // the route existed and nothing linked to it.
+    await tester.tap(find.text('What leaves your phone').first);
+    await tester.pumpAndSettle();
+    expect(find.byType(PrivacyScreen), findsOneWidget);
   });
 }

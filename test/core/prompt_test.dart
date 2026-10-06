@@ -24,7 +24,7 @@ void main() {
       expect(PuckPrompt.maxTokensFor(PuckMode.context), greaterThan(0));
     });
 
-    test('the validator allows the budget plus a stated tolerance, no more', () {
+    test('the validator allows the budget plus a tolerance, no more', () {
       expect(
         PuckPrompt.isAcceptable(PuckMode.intent, words(15)),
         isTrue,

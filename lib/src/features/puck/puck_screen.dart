@@ -236,7 +236,9 @@ class _PanelLayer extends StatelessWidget {
               ? null
               : canvas.height - bubbleTop + 16,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: PuckConstants.cardMaxWidth),
+            constraints: const BoxConstraints(
+              maxWidth: PuckConstants.cardMaxWidth,
+            ),
             child: AnimatedSwitcher(
               duration: motionDuration(context, PuckConstants.cardOut),
               switchInCurve: PuckConstants.moveCurve,

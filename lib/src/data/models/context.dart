@@ -3,7 +3,8 @@ import 'package:puck/src/core/format.dart';
 /// Everything Puck knows about "right now", gathered in one pass.
 ///
 /// Every field is nullable and every reader is allowed to fail: a locked-down
-/// calendar or a denied location permission degrades Puck, it does not break it.
+/// calendar or a denied location permission degrades Puck, it does not break
+/// it.
 class ContextSnapshot {
   const ContextSnapshot({
     required this.now,

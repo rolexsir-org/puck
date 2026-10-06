@@ -39,12 +39,22 @@ class SpringOffset2D {
   void animateTo(Offset target, {Velocity velocity = Velocity.zero}) {
     unawaited(
       _x.animateWith(
-        SpringSimulation(spring, _value.dx, target.dx, velocity.pixelsPerSecond.dx),
+        SpringSimulation(
+          spring,
+          _value.dx,
+          target.dx,
+          velocity.pixelsPerSecond.dx,
+        ),
       ),
     );
     unawaited(
       _y.animateWith(
-        SpringSimulation(spring, _value.dy, target.dy, velocity.pixelsPerSecond.dy),
+        SpringSimulation(
+          spring,
+          _value.dy,
+          target.dy,
+          velocity.pixelsPerSecond.dy,
+        ),
       ),
     );
   }
