@@ -50,8 +50,16 @@ final Provider<CalendarService> calendarServiceProvider =
 final Provider<LocationService> locationServiceProvider =
     Provider<LocationService>((Ref ref) => LocationService());
 
+/// Closed when the container dies. `http.Client` holds a connection pool and
+/// a timer; the app has exactly one container, so this used to be "leaked once
+/// at process exit" -- which stopped being true when the settings screen began
+/// rebuilding providers. Leaked per rebuild is a socket leak.
 final Provider<WeatherService> weatherServiceProvider =
-    Provider<WeatherService>((Ref ref) => WeatherService());
+    Provider<WeatherService>((Ref ref) {
+  final WeatherService service = WeatherService();
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 final Provider<TorchService> torchServiceProvider =
     Provider<TorchService>((Ref ref) => TorchService());
@@ -83,7 +91,14 @@ final Provider<JokeRepository> jokeRepositoryProvider =
 /// Reads the API key lazily from settings, so saving a key in the settings
 /// screen does not require rebuilding the provider graph.
 final Provider<GroqLlmProvider> groqProvider = Provider<GroqLlmProvider>(
-  (Ref ref) => GroqLlmProvider(settings: ref.watch(settingsProvider)),
+  (Ref ref) {
+    final GroqLlmProvider provider =
+        GroqLlmProvider(settings: ref.watch(settingsProvider));
+    // Same reasoning as the weather client: an undisposed closed-loop HTTP
+    // client is a socket and a timer that outlive their owner.
+    ref.onDispose(provider.dispose);
+    return provider;
+  },
 );
 
 final Provider<LocalIntentResolver> localResolverProvider =

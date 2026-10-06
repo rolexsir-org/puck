@@ -116,12 +116,30 @@ class LocalIntentResolver {
   }
 
   /// "what's the time", "what day is it" -- free, exact, no network.
+  ///
+  /// The patterns ask a *question*; they do not look for keywords. The
+  /// keyword version of this method matched a bare `day` anywhere in the
+  /// string, so "when is my birthday" confidently answered with today's date.
+  /// A wrong answer delivered without hesitation is the worst thing a tool
+  /// built on honesty can do, so the cost of missing a phrasing is the right
+  /// side to fail on: an unmatched question falls through to the model or to
+  /// the offline line, both of which are honest.
   String? _timeDate(String q) {
     final DateTime now = DateTime.now();
-    if (RegExp(r'\b(time|clock)\b').hasMatch(q)) {
-      return '${PuckFormat.clock(now)}.';
-    }
-    if (RegExp(r'\b(date|day|today)\b').hasMatch(q)) {
+
+    final bool asksTime = RegExp(r'^(the\s+)?(time|clock)$').hasMatch(q) ||
+        RegExp(r"\bwhat(?:'s| is|s)?\s+(?:the\s+)?(?:time|clock)\b")
+            .hasMatch(q) ||
+        RegExp(r'\bwhat time is it\b').hasMatch(q);
+
+    final bool asksDate = RegExp(r'^(the\s+)?(date|day|today)$').hasMatch(q) ||
+        RegExp(r"\bwhat(?:'s| is|s)?\s+(?:the\s+)?(?:date|today'?s date)\b")
+            .hasMatch(q) ||
+        RegExp(r"\bwhat day (?:is it|is today|are we)\b").hasMatch(q) ||
+        RegExp(r"\btoday'?s (?:date|day)\b").hasMatch(q);
+
+    if (asksTime) return '${PuckFormat.clock(now)}.';
+    if (asksDate) {
       const List<String> days = <String>[
         'Monday', 'Tuesday', 'Wednesday', 'Thursday', //
         'Friday', 'Saturday', 'Sunday',
@@ -132,17 +150,47 @@ class LocalIntentResolver {
   }
 
   /// "tea or coffee" -- decide, as instructed.
+  ///
+  /// Only for an actual either/or. The previous pattern matched *any* " or "
+  /// anywhere in a sentence, so "tea or coffee or tea" was answered with
+  /// "coffee or tea." -- a confident reply to a question that was never asked.
+  /// Splitting on every " or " and requiring exactly two clean, word-like
+  /// options keeps the joke ("tea or coffee" is a real question) and drops the
+  /// nonsense.
   String? _pickOne(String q) {
-    final RegExpMatch? m =
-        RegExp(r'(.{1,40}?)\s+or\s+(.{1,40}?)$').firstMatch(q);
-    if (m == null) return null;
-    final String a = m.group(1)!.trim();
-    final String b = m.group(2)!.trim();
+    final String s = q
+        .replaceAll(
+          RegExp(r'^(?:should i (?:pick|choose|get|have|take)|'
+              r'which (?:one|is better)[,:]?|pick|choose|either)\s+'),
+          '',
+        )
+        .replaceAll(RegExp(r'[?!.,\s]+$'), '')
+        .trim();
+
+    final List<String> parts = s.split(RegExp(r'\s+or\s+'));
+    if (parts.length != 2) return null;
+
+    final String a = parts[0].trim();
+    final String b = parts[1].trim();
     if (a.isEmpty || b.isEmpty) return null;
     if (a.length > 28 || b.length > 28) return null;
     if (RegExp(r'\d').hasMatch('$a$b')) return null; // probably maths
+
+    // Options are *things*, and few words of them: "tea or coffee", "cats or
+    // dogs". "I could take the bus or I could walk" is a deliberation, not a
+    // coin to flip, and answering it with one of the two clauses is exactly
+    // the kind of confident nonsense this resolver must not produce.
+    final RegExp words = RegExp(r"^[\p{L}\p{M}\s\-'&]+$", unicode: true);
+    if (!words.hasMatch(a) || !words.hasMatch(b)) return null;
+    if (_wordCount(a) > 3 || _wordCount(b) > 3) return null;
+
     return _rng.nextBool() ? '$a.' : '$b.';
   }
+
+  static int _wordCount(String text) => text
+      .split(RegExp(r'\s+'))
+      .where((String w) => w.isNotEmpty)
+      .length;
 
   static String _trimDouble(double v) {
     final String s = v.toStringAsFixed(6);

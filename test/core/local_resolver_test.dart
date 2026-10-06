@@ -40,6 +40,44 @@ void main() {
       }
     });
 
+    test('this-or-that declines anything that is not an either/or', () {
+      // "tea or coffee or tea" used to be answered with "coffee or tea." --
+      // a confident reply to a question nobody asked.
+      expect(resolver.tryResolve('tea or coffee or tea'), isNull);
+      expect(resolver.tryResolve('I could take the bus or I could walk'), isNull);
+      expect(resolver.tryResolve('3 or 4'), isNull);
+    });
+
+    test('this-or-that still answers the plain question', () {
+      for (final String q in <String>[
+        'tea or coffee',
+        'should I get tea or coffee?',
+        'pick cats or dogs',
+      ]) {
+        final String? out = resolver.tryResolve(q);
+        expect(out, isNotNull, reason: q);
+        expect(out, endsWith('.'));
+      }
+    });
+
+    test('a keyword inside a question is not a request for the time or date',
+        () {
+      // "when is my birthday" matched a bare "day" and answered with today's
+      // date. A wrong answer delivered without hesitation is the worst output
+      // this app can produce.
+      expect(resolver.tryResolve('when is my birthday'), isNull);
+      expect(resolver.tryResolve('what day should I book'), isNull);
+      expect(resolver.tryResolve('how is your day'), isNull);
+      expect(resolver.tryResolve('time to sleep?'), isNull);
+    });
+
+    test('the actual time and date questions still answer', () {
+      expect(resolver.tryResolve('what time is it'), isNotNull);
+      expect(resolver.tryResolve("what's the time"), isNotNull);
+      expect(resolver.tryResolve('what day is it'), isNotNull);
+      expect(resolver.tryResolve('date'), isNotNull);
+    });
+
     test('nothing to say stays null', () {
       expect(resolver.tryResolve('why is the sky blue'), isNull);
       expect(resolver.tryResolve('hello'), isNull);

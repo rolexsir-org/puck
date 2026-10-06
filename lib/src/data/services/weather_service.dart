@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -100,26 +101,16 @@ class WeatherService {
   void dispose() => _client.close();
 
   /// Equirectangular approximation -- plenty accurate at 5km.
+  ///
+  /// Used to be hand-rolled cosine and Newton square root. Both were correct
+  /// and both were slower, less accurate and more code than `dart:math`; a
+  /// cache radius is not the place to prove anything.
   static double _distanceMetres(Position a, Position b) {
     const double mPerDeg = 111320;
     final double dx = (a.latitude - b.latitude) * mPerDeg;
-    final double dy =
-        (a.longitude - b.longitude) * mPerDeg * _cosDeg(a.latitude);
-    return _sqrt(dx * dx + dy * dy);
-  }
-
-  static double _cosDeg(double deg) {
-    // Small local series is fine: we need ~1% accuracy for a cache radius.
-    final double x = deg * 3.141592653589793 / 180;
-    return 1 - (x * x) / 2 + (x * x * x * x) / 24;
-  }
-
-  static double _sqrt(double v) {
-    if (v <= 0) return 0;
-    double x = v;
-    for (int i = 0; i < 12; i++) {
-      x = (x + v / x) / 2;
-    }
-    return x;
+    final double dy = (a.longitude - b.longitude) *
+        mPerDeg *
+        math.cos(a.latitude * math.pi / 180);
+    return math.sqrt((dx * dx) + (dy * dy));
   }
 }

@@ -32,6 +32,14 @@ abstract final class ContextRanker {
     final CalendarEvent? e = snap.nextEvent;
     if (e == null) return null;
 
+    // All-day entries are handled before anything measures a duration,
+    // because a duration is the wrong unit for them. An all-day "Birthday"
+    // that began at midnight is not "started 9h ago", and a three-day trip is
+    // not "started 2d ago" -- both read as bugs, and both used to happen here
+    // because the `until <= 0` branch ran first and an all-day event always
+    // has `until <= 0` for most of its own day.
+    if (e.allDay) return _allDay(e, now);
+
     final Duration until = e.until(now);
 
     // Already started: tell them, briefly, then get out of the way.
@@ -47,20 +55,45 @@ abstract final class ContextRanker {
 
     if (until > meetingWindow) return null;
 
-    if (e.allDay) {
-      return ContextItem(
-        kind: ContextKind.calendar,
-        label: 'TODAY',
-        headline: e.title,
-        detail: 'All day',
-      );
-    }
-
     return ContextItem(
       kind: ContextKind.calendar,
       label: 'NEXT UP',
       headline: '${e.title} ${PuckFormat.countdown(until)}',
       detail: e.subtitle,
+    );
+  }
+
+  /// An all-day entry is a *state*, not an appointment: it is true for the
+  /// whole day and there is no useful countdown to it.
+  ///
+  /// It is also only worth interrupting someone for while it is happening.
+  /// Tomorrow's all-day entry is not "next up" -- the tap card exists for the
+  /// next hour, and a birthday three days out is the kind of trivia that makes
+  /// people stop trusting the button.
+  static ContextItem? _allDay(CalendarEvent e, DateTime now) {
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime startDay =
+        DateTime(e.start.year, e.start.month, e.start.day);
+    if (startDay.isAfter(today)) return null;
+
+    // DTEND is exclusive in iCalendar ("1 day" = ends the next midnight), but
+    // some providers hand back an inclusive end instead. Subtracting a day
+    // from the exclusive form and clamping at the start day makes both shapes
+    // mean the same thing: the last day the entry is live.
+    DateTime lastDay = startDay;
+    final DateTime? rawEnd = e.end;
+    if (rawEnd != null) {
+      lastDay = DateTime(rawEnd.year, rawEnd.month, rawEnd.day)
+          .subtract(const Duration(days: 1));
+      if (lastDay.isBefore(startDay)) lastDay = startDay;
+    }
+    if (lastDay.isBefore(today)) return null; // already over
+
+    return ContextItem(
+      kind: ContextKind.calendar,
+      label: 'TODAY',
+      headline: e.title,
+      detail: 'All day',
     );
   }
 

@@ -27,6 +27,11 @@ class IntentRouter {
   /// allowed to delay or degrade it.
   static const Duration polishTimeout = Duration(milliseconds: 900);
 
+  /// How much of a streaming answer is held back before any of it is shown.
+  /// Long enough to recognise a filler opener, short enough that the first
+  /// words are not visibly late.
+  static const int leadWindow = 24;
+
   bool get isOnlineCapable => _llm.isConfigured;
 
   // -- INTENT (swipe up) ----------------------------------------------------
@@ -44,6 +49,17 @@ class IntentRouter {
         yield instant;
         return;
       }
+
+      // INTENT is the only path where model text is the whole answer, so it
+      // is the only one that needs a guard on the way out. The README used to
+      // claim "every output passes a client-side validator" while this path
+      // streamed raw tokens straight to the card; now the claim is true.
+      if (!_llm.isConfigured) {
+        yield _local.offline();
+        return;
+      }
+      yield* _guardedIntent(request);
+      return;
     }
 
     if (!_llm.isConfigured) {
@@ -61,6 +77,84 @@ class IntentRouter {
       yield LocalIntentResolver.offlineLine;
     }
   }
+
+  /// Streams an answer while keeping the promise that what reaches the card
+  /// has passed [PuckPrompt.isAcceptable].
+  ///
+  /// Three rules, each one a failure that was actually observed:
+  ///
+  ///   1. The first [leadWindow] characters are held back. A filler opener
+  ///      ("Sure, ...") is not recoverable once it is on screen, and the
+  ///      stream is the only place it can still be stopped.
+  ///   2. Emission stops at the word budget. `max_completion_tokens` bounds
+  ///      the API call, but the client cannot see a provider-side change to
+  ///      that parameter, so it enforces its own ceiling rather than trusting
+  ///      one. Stopping at a word boundary leaves a short answer rather than a
+  ///      severed sentence, and short is what the card is for.
+  ///   3. A stream that ends before the lead is released is validated whole.
+  ///      Empty, over-length or filler output becomes the honest offline line.
+  ///
+  /// A failure mid-stream after text has been shown ends the answer quietly:
+  /// appending an error line to a half-sentence reads as a malfunction.
+  Stream<String> _guardedIntent(LlmRequest request) async* {
+    final int wordBudget = PuckPrompt.wordLimitFor(PuckMode.intent) +
+        PuckPrompt.validationTolerance;
+
+    final StringBuffer held = StringBuffer();
+    int words = 0;
+    bool released = false;
+
+    try {
+      await for (final String token in _llm.complete(request)) {
+        if (!released) {
+          held.write(token);
+          final String buffer = held.toString();
+          // Wait until there is something to judge: either the text has
+          // outgrown the lead window, or a word has ended inside it.
+          if (buffer.length < leadWindow &&
+              !buffer.contains(RegExp(r'\s'))) {
+            continue;
+          }
+          if (buffer.length > PuckPrompt.maxAnswerChars ||
+              PuckPrompt.hasBannedOpening(buffer)) {
+            yield _local.offline();
+            return;
+          }
+          released = true;
+          words = _wordCount(buffer);
+          yield buffer;
+          continue;
+        }
+
+        final int added = _wordCount(token);
+        if (words + added > wordBudget) return; // budget spent, end cleanly
+        words += added;
+        yield token;
+      }
+    } on LlmException catch (e) {
+      if (released) return;
+      yield e.retryable ? LocalIntentResolver.offlineLine : e.message;
+      return;
+    } catch (_) {
+      if (released) return;
+      yield LocalIntentResolver.offlineLine;
+      return;
+    }
+
+    if (released) return;
+
+    final String whole = held.toString().trim();
+    if (whole.isEmpty || !PuckPrompt.isAcceptable(PuckMode.intent, whole)) {
+      yield _local.offline();
+      return;
+    }
+    yield whole;
+  }
+
+  static int _wordCount(String text) => text
+      .split(RegExp(r'\s+'))
+      .where((String w) => w.trim().isNotEmpty)
+      .length;
 
   // -- CONTEXT (single tap, hybrid) -----------------------------------------
 

@@ -53,9 +53,15 @@ class _IntentBarState extends ConsumerState<IntentBar>
 
   double _dragDistance = 0;
 
+  /// Captured rather than read in `dispose()`: the provider container can be
+  /// gone by then, and a stale listener on a shared service is exactly the bug
+  /// being fixed below.
+  late final SpeechService _speech;
+
   @override
   void initState() {
     super.initState();
+    _speech = ref.read(speechServiceProvider);
     // The bar appears because of a flick; the cursor is already in the field
     // before the keyboard finishes its own animation.
     _focus.requestFocus();
@@ -83,7 +89,14 @@ class _IntentBarState extends ConsumerState<IntentBar>
 
   @override
   void dispose() {
-    unawaited(ref.read(speechServiceProvider).cancel());
+    // The speech service outlives this widget (it is provided at app scope),
+    // so its callbacks have to be cut here or the next session's recogniser
+    // writes into a dead widget's TextEditingController.
+    _speech
+      ..onText = null
+      ..onDone = null
+      ..onError = null;
+    unawaited(_speech.cancel());
     _rise.dispose();
     _field.dispose();
     _focus.dispose();
@@ -100,7 +113,7 @@ class _IntentBarState extends ConsumerState<IntentBar>
   }
 
   Future<void> _toggleMic() async {
-    final SpeechService speech = ref.read(speechServiceProvider);
+    final SpeechService speech = _speech;
 
     if (_listening.value) {
       await _stopListening();
@@ -129,7 +142,7 @@ class _IntentBarState extends ConsumerState<IntentBar>
 
   Future<void> _stopListening() async {
     _listening.value = false;
-    await ref.read(speechServiceProvider).stop();
+    await _speech.stop();
   }
 
   @override
