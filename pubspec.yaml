@@ -3,7 +3,7 @@ description: >-
   One floating button. Four gestures. Zero menus.
   A minimalist context surface for people who hate apps.
 publish_to: "none"
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.5.0
@@ -27,13 +27,33 @@ environment:
 #   url_launcher        plugin (tiny)    pre-filled SMS
 #   speech_to_text      plugin (HEAVY)   <-- the only big one, see README
 #
-# No intl (hand-rolled formatters), no font packages (system type only),
-# no state-management codegen, no icon packs (custom painters).
+#
+# REVERSAL (2026-10): the original budget banned intl and flutter_localizations
+# to keep the app thin and English-only. That decision is now wrong. Puck is
+# for everyone, "everyone" does not read English, and 12-hour AM/PM clock
+# strings for 7.5 billion people is not thinness -- it is a defect. Reasoning
+# and the full list of what changed is in FINDINGS.md.
+#
+#   flutter_localizations  sdk          Material/Cupertino delegates, RTL, and
+#                                       the locale data intl formats against
+#   intl                   pure Dart    DateFormat/NumberFormat: 24-hour clocks,
+#                                       locale month and day names, date order
+#   package_info_plus      plugin (tiny) the real version string, for
+#                                       diagnostics and bug reports
+#
+# Still banned: font packages (system type only), state-management codegen,
+# icon packs (custom painters), analytics, crash reporting.
 # ---------------------------------------------------------------------------
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # `any` on purpose: flutter_localizations pins an exact intl version, and a
+  # range here is the classic "version solving failed" in a Flutter app.
+  intl: any
 
   flutter_riverpod: ^2.6.1
   http: ^1.2.2
@@ -46,6 +66,7 @@ dependencies:
   vibration: ^1.9.0
   speech_to_text: ^7.0.0
   url_launcher: ^6.3.1
+  package_info_plus: ^8.0.0
 
 dev_dependencies:
   flutter_test:

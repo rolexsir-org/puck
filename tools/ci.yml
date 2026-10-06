@@ -1,0 +1,105 @@
+# CI, kept here rather than in .github/workflows/ for one boring reason: the
+# credential this change was authored with is a GitHub App token without the
+# `workflows` permission, and GitHub rejects any push that adds or edits a file
+# in `.github/workflows/`. So the definition lives in the repository (it is the
+# owner's file, and it should be reviewed like any other) and takes one command
+# to install:
+#
+#     mkdir -p .github/workflows
+#     git mv tools/ci.yml .github/workflows/ci.yml
+#     git commit -m "ci: install the workflow"
+#
+# Do that with a token that has the `workflows` permission and everything below
+# runs on every push.
+name: CI
+
+# Runs on every change, from here on. The things that must never be allowed to
+# rot: the analyzer profile in analysis_options.yaml, the ARB files and the
+# string table agreeing, the test suite, and the debug APK (the canary that
+# catches a plugin or Gradle breakage long before a release build would).
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: l10n · format · analyze · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Toolchain versions
+        run: flutter --version
+
+      - name: Dependencies
+        run: flutter pub get
+
+      # The ARB files are generated from the Dart maps by this repository's own
+      # script, not by `flutter gen-l10n` (see the class doc in
+      # puck_strings.dart). A stale ARB file is a translator working from a
+      # sentence that is no longer in the app, so this fails the build rather
+      # than warning.
+      - name: ARB files match the string table
+        run: |
+          python3 tools/gen_arb.py
+          git diff --exit-code -- lib/l10n || {
+            echo "::error::lib/l10n is stale. Run 'python3 tools/gen_arb.py' and commit the result.";
+            exit 1;
+          }
+
+      # 42 pre-existing lines exceed 80 columns, so this step is expected to be
+      # red until `dart format .` is run once and committed as a mechanical
+      # change -- see FINDINGS.md §1. Kept in the workflow deliberately: a
+      # formatting rule nobody runs is not a rule.
+      - name: Formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test --reporter expanded
+
+      # Regexes that are "nearly right" fail silently and land on a user: a
+      # raw-string RegExp with two backslashes matches the letter s instead of
+      # whitespace. The analyzer has no rule for it and the pattern still
+      # compiles, so this script checks every RegExp literal in the tree.
+      - name: Regex sanity
+        run: python3 tools/check_regexes.py .
+
+      # The shared answer service is JavaScript, and it can be executed
+      # anywhere: 14 tests, no Cloudflare account needed. This is the one part
+      # of the tree that runs in CI exactly as it runs locally.
+      - name: Shared answer service tests
+        run: node --test "worker/test/*.test.mjs"
+
+  debug-apk:
+    name: debug APK canary
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build apk --debug

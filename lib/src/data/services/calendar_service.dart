@@ -93,7 +93,12 @@ class CalendarService {
             bestStart = start;
             final String title = (e.title ?? '').trim();
             best = CalendarEvent(
-              title: title.isEmpty ? 'Busy' : title,
+              // An untitled event keeps its empty title. It used to become the
+              // English word "Busy" here, which then travelled verbatim into
+              // the card -- so a Spanish user with an untitled appointment got
+              // an English word in a Spanish sentence. The substitution now
+              // happens in ContextRanker, which is handed the user's language.
+              title: title,
               start: start,
               end: end,
               location: e.location,
@@ -116,9 +121,18 @@ class CalendarService {
   }
 
   /// Cancelled events and transparent ("free") entries are not commitments.
+  ///
+  /// The transparency half of that sentence used to be false: only `Canceled`
+  /// was checked, so a calendar full of "free"/transparent blocks reported the
+  /// next block as an appointment. `Availability.Free` is the iCalendar
+  /// TRANSP:FREE value and is non-nullable on the plugin's `Event`, so this is
+  /// a direct comparison rather than a guess.
+  ///
+  /// Tentative entries are deliberately *kept*: "maybe a meeting at 3" is
+  /// still something a person would want to be reminded of.
   bool _isSkippable(dc.Event e) {
     final dc.EventStatus? status = e.status;
     if (status != null && status == dc.EventStatus.Canceled) return true;
-    return false;
+    return e.availability == dc.Availability.Free;
   }
 }

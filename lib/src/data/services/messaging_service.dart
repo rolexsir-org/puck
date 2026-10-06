@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:puck/src/core/format.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Builds and hands off the emergency SMS.
@@ -14,17 +15,24 @@ import 'package:url_launcher/url_launcher.dart';
 class MessagingService {
   /// Four lines, in the order a human would ask for them. No greeting, no
   /// drama, no capitalised urgency -- the recipient knows the sender.
+  ///
+  /// [strings] is not optional and not an afterthought: the person receiving
+  /// this message is very often *not* a speaker of the sender's second
+  /// language. An SOS from a Spanish speaker that arrives in English is a
+  /// message the recipient may not be able to read at all.
   static String buildSosBody({
     required double? latitude,
     required double? longitude,
     required double? accuracy,
     required DateTime at,
+    required PuckStrings strings,
   }) {
     final String where;
     if (latitude == null || longitude == null) {
-      where = 'Location unavailable';
+      where = strings.sosMessageNoLocation;
     } else {
-      final String acc = accuracy == null ? '' : ' (${PuckFormat.accuracy(accuracy)})';
+      final String acc =
+          accuracy == null ? '' : ' (${PuckFormat.accuracy(accuracy)})';
       where = '${PuckFormat.coordsDegrees(latitude, longitude)}$acc';
     }
 
@@ -32,7 +40,7 @@ class MessagingService {
         ? ''
         : '\n${PuckFormat.coordsUrl(latitude, longitude)}';
 
-    return 'I need help.\n$where$map\n${PuckFormat.stamp(at)}';
+    return '${strings.sosMessage}\n$where$map\n${strings.stamp(at)}';
   }
 
   /// Opens the SMS composer. Returns false if nothing can handle the intent.
@@ -49,6 +57,31 @@ class MessagingService {
       'sms:$cleaned?body=${Uri.encodeComponent(body)}',
     );
 
+    try {
+      if (!await canLaunchUrl(uri)) return false;
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens the platform dialer with the emergency number pre-filled.
+  ///
+  /// **Never a call, always the dialer.** `tel:` maps to `ACTION_DIAL` on
+  /// Android and to an unsent `tel:` URL on iOS: the number appears in the
+  /// dial-pad and a human presses the call button. That preserves the same
+  /// property [openSms] preserves -- a pocket cannot complete an action on its
+  /// own -- while needing no permission at all (no `CALL_PHONE`, no
+  /// `READ_PHONE_STATE`), which matters because a permissions prompt in the
+  /// middle of an emergency is another thing that can go wrong.
+  ///
+  /// Returns false when the device has no dialer at all (some tablets), so the
+  /// caller can say so instead of showing a dead button.
+  Future<bool> dialEmergency(String number) async {
+    final String cleaned = number.replaceAll(RegExp(r'[^\d+*#]'), '');
+    if (cleaned.isEmpty) return false;
+
+    final Uri uri = Uri.parse('tel:$cleaned');
     try {
       if (!await canLaunchUrl(uri)) return false;
       return await launchUrl(uri, mode: LaunchMode.externalApplication);

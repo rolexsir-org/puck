@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/features/puck/puck_gesture_recognizer.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 
 /// The entire product surface: one 72px white disc.
 ///
@@ -18,6 +19,9 @@ class PuckBubble extends StatefulWidget {
     required this.onDragUpdate,
     required this.onDragEnd,
     required this.onRelease,
+    this.holdDuration = PuckConstants.longPressDuration,
+    this.onShowActions,
+    this.showRestingRing = true,
     super.key,
   });
 
@@ -30,6 +34,20 @@ class PuckBubble extends StatefulWidget {
   /// reads this as the pocket-release signal.
   final VoidCallback onRelease;
 
+  /// How long the hold-to-SOS takes. Defaults to the design constant; the
+  /// settings screen can shorten it (see `SettingsRepository.sosHold`).
+  final Duration holdDuration;
+
+  /// Opens the labelled action list -- the surface that makes all four
+  /// behaviours reachable without a timing-sensitive gesture. Null when the
+  /// host screen does not offer it.
+  final VoidCallback? onShowActions;
+
+  /// The quiet ring at rest: the bubble's one permanent hint that it can be
+  /// held. Retired after the first successful hold, because a hint that
+  /// outlives the discovery it was for is chrome.
+  final bool showRestingRing;
+
   @override
   State<PuckBubble> createState() => PuckBubbleState();
 }
@@ -37,18 +55,11 @@ class PuckBubble extends StatefulWidget {
 class PuckBubbleState extends State<PuckBubble> with TickerProviderStateMixin {
   /// Press scale: 1.0 -> 0.94 in 80ms, back on release. One controller, two
   /// durations -- the return is gentler than the hit.
-  late final AnimationController _press = AnimationController(
-    vsync: this,
-    duration: PuckConstants.pressIn,
-    reverseDuration: PuckConstants.pressOut,
-  );
+  late final AnimationController _press;
 
   /// Drives the hold ring. Duration matches the recogniser exactly, so the
   /// ring filling up *is* the countdown.
-  late final AnimationController _hold = AnimationController(
-    vsync: this,
-    duration: PuckConstants.longPressDuration,
-  );
+  late final AnimationController _hold;
 
   bool _armed = false;
   bool _dragging = false;
@@ -56,11 +67,27 @@ class PuckBubbleState extends State<PuckBubble> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    // Built here rather than as field initialisers because the hold duration
+    // is a widget property: a field initialiser runs before `widget` exists.
+    _press = AnimationController(
+      vsync: this,
+      duration: PuckConstants.pressIn,
+      reverseDuration: PuckConstants.pressOut,
+    );
+    _hold = AnimationController(vsync: this, duration: widget.holdDuration);
     _hold.addStatusListener((AnimationStatus status) {
       if (status == AnimationStatus.completed && !_armed) {
         setState(() => _armed = true);
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(PuckBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.holdDuration != widget.holdDuration) {
+      _hold.duration = widget.holdDuration;
+    }
   }
 
   void _onPressStart() {
@@ -95,6 +122,42 @@ class PuckBubbleState extends State<PuckBubble> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final PuckStrings strings = PuckStrings.of(context);
+
+    return Semantics(
+      // One node, one label, four ways in. Without this the entire product is
+      // a `CustomPaint` with no name: a screen reader user hears "unlabelled
+      // button" and has nothing to act on.
+      container: true,
+      button: true,
+      label: strings.bubbleLabel,
+      hint: strings.bubbleHint,
+      onTap: () => widget.onGesture(PuckGestureKind.tap),
+      onLongPress: () => widget.onGesture(PuckGestureKind.longPress),
+      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
+        // The three gestures a screen reader cannot express as a swipe are
+        // exposed as named actions, which is how TalkBack and VoiceOver
+        // surface them: a vertical swipe list over the focused element.
+        //
+        // The labels are localized and therefore not `const` any more. They
+        // are read aloud, so an English label in a Spanish UI is not a
+        // cosmetic problem: it is the only description of the action the
+        // listener gets.
+        CustomSemanticsAction(label: strings.actionJoke): () =>
+            widget.onGesture(PuckGestureKind.doubleTap),
+        CustomSemanticsAction(label: strings.actionAsk): () =>
+            widget.onGesture(PuckGestureKind.swipeUp),
+        CustomSemanticsAction(label: strings.actionSos): () =>
+            widget.onGesture(PuckGestureKind.longPress),
+        if (widget.onShowActions != null)
+          CustomSemanticsAction(label: strings.actionsOpen): () =>
+              widget.onShowActions!(),
+      },
+      child: ExcludeSemantics(child: _detector(context)),
+    );
+  }
+
+  Widget _detector(BuildContext context) {
     return RawGestureDetector(
       behavior: HitTestBehavior.opaque,
       gestures: <Type, GestureRecognizerFactory>{
@@ -108,10 +171,13 @@ class PuckBubbleState extends State<PuckBubble> with TickerProviderStateMixin {
             onPressStart: _onPressStart,
             onPressCancel: _onPressCancel,
             onPressEnd: widget.onRelease,
+            longPressDuration: widget.holdDuration,
           ),
           (PuckGestureRecognizer instance) {
-            // Callbacks are captured in the constructor closure; nothing to
-            // rebind on rebuild.
+            // Callbacks are captured in the constructor closure; the one thing
+            // that must follow a rebuild is the hold length, which the settings
+            // screen can change while this recogniser stays alive.
+            instance.longPressDuration = widget.holdDuration;
           },
         ),
       },
@@ -139,7 +205,10 @@ class PuckBubbleState extends State<PuckBubble> with TickerProviderStateMixin {
           height: PuckConstants.bubbleSize,
           child: RepaintBoundary(
             child: CustomPaint(
-              foregroundPainter: _HoldRingPainter(hold: _hold),
+              foregroundPainter: _HoldRingPainter(
+                hold: _hold,
+                showRest: widget.showRestingRing,
+              ),
               child: AnimatedContainer(
                 duration: PuckConstants.pressOut,
                 curve: Curves.easeOutCubic,
@@ -174,17 +243,34 @@ class _HoldRingPainter extends CustomPainter {
   // The ring repaints on every tick of the hold controller -- the sweep
   // *is* the countdown. `CustomPainter` takes the repaint listenable as a
   // constructor argument; the old `get repaint` override no longer exists.
-  const _HoldRingPainter({required this.hold}) : super(repaint: hold);
+  const _HoldRingPainter({required this.hold, required this.showRest})
+      : super(repaint: hold);
 
   final Animation<double> hold;
+
+  /// The hint at rest: a groove where the ring will fill. It is a texture, not
+  /// a control -- no label, no border, no colour, and it disappears for good
+  /// once the hold has been discovered.
+  final bool showRest;
 
   @override
   void paint(Canvas canvas, Size size) {
     final double progress = hold.value.clamp(0.0, 1.0);
-    if (progress <= 0) return;
-
     final Offset center = size.center(Offset.zero);
     final double radius = size.width / 2 - 6;
+
+    if (progress <= 0) {
+      if (!showRest) return;
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = const Color(0x14000000),
+      );
+      return;
+    }
 
     final Paint ring = Paint()
       ..style = PaintingStyle.stroke
@@ -202,5 +288,6 @@ class _HoldRingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_HoldRingPainter old) => old.hold.value != hold.value;
+  bool shouldRepaint(_HoldRingPainter old) =>
+      old.hold.value != hold.value || old.showRest != showRest;
 }

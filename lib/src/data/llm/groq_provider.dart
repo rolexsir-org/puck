@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/data/llm/llm_provider.dart';
 import 'package:puck/src/data/llm/prompt.dart';
+import 'package:puck/src/data/llm/sse.dart';
 import 'package:puck/src/data/repositories/settings_repository.dart';
 
 /// Groq chat completions, streaming over SSE.
@@ -84,35 +85,12 @@ class GroqLlmProvider implements LlmProvider {
       );
     }
 
-    String lastFrame = '';
-    await for (final String line in response.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .timeout(PuckConstants.llmIdleTimeout)) {
-      if (line.isEmpty || !line.startsWith('data:')) continue;
-
-      final String data = line.substring(5).trim();
-      if (data == '[DONE]') break;
-
-      lastFrame = data;
-      final Map<String, dynamic> json;
-      try {
-        json = jsonDecode(data) as Map<String, dynamic>;
-      } catch (_) {
-        continue; // Malformed keep-alive or partial frame.
-      }
-
-      final dynamic choices = json['choices'];
-      if (choices is! List || choices.isEmpty) continue;
-      final dynamic delta = (choices.first as Map)['delta'];
-      if (delta is! Map) continue;
-      final Object? content = delta['content'];
-      if (content is String && content.isNotEmpty) yield content;
-    }
-
-    if (lastFrame.isEmpty) {
-      throw const LlmException('Empty response from model');
-    }
+    // Parsing is shared with the proxy provider: one wire format, one
+    // implementation. See `sse.dart` for why.
+    yield* openAiSseDeltas(
+      response.stream,
+      idleTimeout: PuckConstants.llmIdleTimeout,
+    );
   }
 
   String _describeStatus(int code) {

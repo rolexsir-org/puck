@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import 'package:puck/src/data/models/context.dart';
 import 'package:puck/src/data/repositories/context_repository.dart';
 import 'package:puck/src/data/repositories/joke_repository.dart';
 import 'package:puck/src/data/repositories/settings_repository.dart';
+import 'package:puck/src/data/services/emergency_numbers.dart';
 import 'package:puck/src/data/services/location_service.dart';
 import 'package:puck/src/data/services/messaging_service.dart';
 import 'package:puck/src/data/services/torch_service.dart';
@@ -17,12 +19,13 @@ import 'package:puck/src/domain/context_ranker.dart';
 import 'package:puck/src/domain/intent_router.dart';
 import 'package:puck/src/features/puck/puck_gesture_recognizer.dart';
 import 'package:puck/src/features/puck/spring_offset.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 import 'package:puck/src/providers.dart';
 
 /// Which transient surface, if any, is currently on screen.
 ///
 /// Only one at a time by construction -- that constraint is the design.
-enum PanelKind { none, context, joke, answer }
+enum PanelKind { none, context, joke, answer, gestures }
 
 class IntentView {
   const IntentView({
@@ -61,9 +64,12 @@ class SosView {
     required this.status,
     required this.torchOn,
     required this.secondsLeft,
+    required this.emergency,
     this.body,
     this.position,
     this.hasContact = false,
+    this.bodyPending = false,
+    this.smsHandoffFailed = false,
   });
 
   final SosPhase phase;
@@ -77,6 +83,19 @@ class SosView {
   final Position? position;
   final bool hasContact;
 
+  /// The countdown finished with a contact but no message yet, because the
+  /// fix has not landed. The send is remembered and fires when it does.
+  final bool bodyPending;
+
+  /// The SMS composer could not be opened -- no SMS app, or the intent was
+  /// refused. The sheet offers the dialer instead of pretending.
+  final bool smsHandoffFailed;
+
+  /// The local emergency number, always resolved (it is a locale lookup, not
+  /// a permission), so the sheet can offer a way to call when there is nobody
+  /// to text.
+  final EmergencyNumber emergency;
+
   SosView copyWith({
     SosPhase? phase,
     String? status,
@@ -85,6 +104,9 @@ class SosView {
     String? body,
     Position? position,
     bool? hasContact,
+    bool? bodyPending,
+    bool? smsHandoffFailed,
+    EmergencyNumber? emergency,
   }) =>
       SosView(
         phase: phase ?? this.phase,
@@ -94,6 +116,9 @@ class SosView {
         body: body ?? this.body,
         position: position ?? this.position,
         hasContact: hasContact ?? this.hasContact,
+        bodyPending: bodyPending ?? this.bodyPending,
+        smsHandoffFailed: smsHandoffFailed ?? this.smsHandoffFailed,
+        emergency: emergency ?? this.emergency,
       );
 }
 
@@ -107,6 +132,38 @@ class PuckController extends ChangeNotifier {
   PuckController(this._ref);
 
   final Ref _ref;
+
+  /// The language the UI is currently in.
+  ///
+  /// Pushed in from the widget layer on every build, because only a widget
+  /// has a `Localizations` scope. Everything the controller says on its own --
+  /// the card, the SOS status line, the emergency message -- reads from here.
+  Locale _locale = const Locale('en');
+
+  PuckStrings get strings => PuckStrings.forLocale(_locale);
+
+  /// Set from `PuckHome.build` out of `MediaQuery.disableAnimations`.
+  ///
+  /// The controller owns the spring, so the setting has to reach it: the one
+  /// animation a user cannot avoid is the snap, and it is the one that happens
+  /// under their finger.
+  bool _reduceMotion = false;
+
+  /// Called from the widget layer, which is the only place with a
+  /// `MediaQuery`. The same shape as [setLocale], for the same reason.
+  void setReducedMotion(bool value) {
+    if (value == _reduceMotion) return;
+    _reduceMotion = value;
+  }
+
+  /// Called from `PuckHome.build`, which is the only place that knows what the
+  /// user's language resolved to.
+  void setLocale(Locale locale) {
+    if (locale.languageCode == _locale.languageCode) return;
+    _locale = locale;
+    _read<LocalIntentResolver>(localResolverProvider).setLocale(locale);
+    notifyListeners();
+  }
 
   // -- Geometry -------------------------------------------------------------
 
@@ -122,7 +179,9 @@ class PuckController extends ChangeNotifier {
   double get _maxX => _canvas.width <= 0
       ? 0
       : PuckFormat.clamp(
-          _canvas.width - PuckConstants.bubbleSize - PuckConstants.bubbleMargin * 2,
+          _canvas.width -
+              PuckConstants.bubbleSize -
+              PuckConstants.bubbleMargin * 2,
           0,
           double.infinity,
         );
@@ -130,7 +189,9 @@ class PuckController extends ChangeNotifier {
   double get _maxY => _canvas.height <= 0
       ? 0
       : PuckFormat.clamp(
-          _canvas.height - PuckConstants.bubbleSize - PuckConstants.bubbleMargin * 2,
+          _canvas.height -
+              PuckConstants.bubbleSize -
+              PuckConstants.bubbleMargin * 2,
           0,
           double.infinity,
         );
@@ -221,7 +282,14 @@ class PuckController extends ChangeNotifier {
     final double targetY = PuckFormat.clamp(projectedY, 0, _maxY);
 
     _spring?.jumpTo(current);
-    _spring?.animateTo(Offset(targetX, targetY), velocity: velocity);
+    final Offset target = Offset(targetX, targetY);
+    if (_reduceMotion) {
+      // Reduced motion: the destination is the same, the journey is skipped.
+      _spring?.jumpTo(target);
+      bubblePosition.value = target;
+    } else {
+      _spring?.animateTo(target, velocity: velocity);
+    }
     unawaited(_read<HapticsService>(hapticsProvider).tick());
   }
 
@@ -251,11 +319,30 @@ class PuckController extends ChangeNotifier {
   SosView? get sos => _sos;
   bool get intentBarOpen => _intentBarOpen;
   bool get isSosActive => _sos != null;
+  bool get actionsOpen => _actionsOpen;
+
+  /// True while the one-time gesture card is the thing on screen. See
+  /// [_showGestureCard].
+  bool get gestureCardDue => _gestureCardDue;
 
   Timer? _dismissTimer;
   Timer? _sosRunawayTimer;
   Timer? _sosCountdownTimer;
   StreamSubscription<String>? _intentSub;
+
+  /// A send is owed to a contact but the message is not ready yet. See
+  /// [_fireSos].
+  bool _sendPending = false;
+
+  /// The accessible action list. Not part of the normal flow: opened from a
+  /// semantics action, from the affordance that only exists when an assistive
+  /// technology is running, or from the accessibility shortcut.
+  bool _actionsOpen = false;
+
+  /// The first-run gesture card is owed. Set once the first tap has been
+  /// *served* -- a card that appears before the button does any work is an
+  /// onboarding screen by another name.
+  bool _gestureCardDue = false;
 
   DateTime? _dismissDeadline;
 
@@ -274,6 +361,10 @@ class PuckController extends ChangeNotifier {
       _dismissDeadline = null;
       if (_intentBarOpen) {
         closeIntentBar();
+      } else if (_panel == PanelKind.gestures) {
+        unawaited(_dismissGestureCard());
+      } else if (_gestureCardDue) {
+        _showGestureCard();
       } else {
         _panel = PanelKind.none;
         _contextItem = null;
@@ -283,6 +374,37 @@ class PuckController extends ChangeNotifier {
       }
     });
   }
+
+  // -- First run ------------------------------------------------------------
+
+  /// One quiet card, once, listing the four gestures in four lines.
+  ///
+  /// Not onboarding: it is a card in the same visual language as every other
+  /// card, it appears only after the first tap has been served, it is
+  /// dismissed by a tap on it, and it is never shown again. It exists because
+  /// "no onboarding" must not mean "no discoverability" -- a stranger gets a
+  /// white circle and needs to be told that the circle has four verbs.
+  void _showGestureCard() {
+    _gestureCardDue = false;
+    _panel = PanelKind.gestures;
+    _contextItem = null;
+    _joke = null;
+    _intent = null;
+    _scheduleDismiss(const Duration(seconds: 12));
+    notifyListeners();
+  }
+
+  /// Called when the user taps the card away, and when it times out.
+  Future<void> _dismissGestureCard() async {
+    await _read<SettingsRepository>(settingsProvider).markGestureCardShown();
+    if (!hasListeners) return;
+    if (_panel == PanelKind.gestures) _panel = PanelKind.none;
+    _gestureCardDue = false;
+    notifyListeners();
+  }
+
+  /// The card's own tap handler.
+  Future<void> dismissGestureCard() => _dismissGestureCard();
 
   /// Guarantees the card stays up long enough to read an upgraded line.
   void _ensureRemainingDismiss(Duration minimum) {
@@ -325,7 +447,7 @@ class PuckController extends ChangeNotifier {
     _panel = PanelKind.context;
     _joke = null;
     _intent = null;
-    _contextItem = ContextRanker.timeOfDay(DateTime.now());
+    _contextItem = ContextRanker.timeOfDay(DateTime.now(), strings);
     _scheduleDismiss(PuckConstants.contextDismiss);
     notifyListeners();
 
@@ -334,9 +456,17 @@ class PuckController extends ChangeNotifier {
     if (!hasListeners || _panel != PanelKind.context) return;
 
     // Phase 2: the deterministic line. Offline, instant, always available.
-    final ContextItem ranked = ContextRanker.rank(snapshot);
+    final ContextItem ranked = ContextRanker.rank(snapshot, strings);
     _contextItem = ranked;
     _panel = PanelKind.context;
+
+    // The first tap has now been served. *Now* the one-time card that names
+    // the four gestures may appear -- after the thing that works, never in
+    // front of it.
+    final SettingsRepository settings =
+        _read<SettingsRepository>(settingsProvider);
+    if (!settings.gestureCardShown) _gestureCardDue = true;
+
     notifyListeners();
 
     // Phase 3: optional polish. The model is asked to *sharpen* the line the
@@ -360,6 +490,21 @@ class PuckController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // -- The accessible action list -------------------------------------------
+
+  void openActions() {
+    if (_actionsOpen) return;
+    _actionsOpen = true;
+    _cancelDismiss();
+    notifyListeners();
+  }
+
+  void closeActions() {
+    if (!_actionsOpen) return;
+    _actionsOpen = false;
+    notifyListeners();
+  }
+
   /// Behaviour 2 -- the double-tap. The shuffle bag is the whole feature:
   /// instant, offline, and it never repeats until it has to.
   Future<void> _showJoke() async {
@@ -369,7 +514,12 @@ class PuckController extends ChangeNotifier {
     await repo.load();
     if (!hasListeners) return;
 
-    final String? line = repo.next();
+    // Per-locale joke bags are a business decision, not a technical one (see
+    // FINDINGS.md). The bag is English wordplay: 100 puns that only work in
+    // one language, and machine-translating them produces 100 lines that are
+    // funny in neither. So a language without its own bag gets one pleasant,
+    // honest line instead of an English joke it cannot read.
+    final String? line = strings.isEnglish ? repo.next() : strings.jokeFallback;
     if (line == null) return;
 
     _joke = line;
@@ -392,20 +542,27 @@ class PuckController extends ChangeNotifier {
   Future<void> _armSos() async {
     if (_sos != null) return; // already armed
 
-    final SettingsRepository settings = _read<SettingsRepository>(settingsProvider);
+    final SettingsRepository settings =
+        _read<SettingsRepository>(settingsProvider);
     final HapticsService haptics = _read<HapticsService>(hapticsProvider);
 
     unawaited(haptics.heavy());
     unawaited(haptics.sosAlarm());
+    // The hold has been found. The bubble's resting ring has done its job.
+    unawaited(_read<SettingsRepository>(settingsProvider).markHoldDiscovered());
 
     _sos = SosView(
       phase: SosPhase.counting,
-      status: 'Getting your location',
+      status: strings.sosGettingLocation,
       torchOn: false,
       secondsLeft: PuckConstants.sosCountdown.inSeconds,
       body: null,
       hasContact: settings.hasEmergencyContact,
+      emergency: EmergencyNumbers.resolve(
+        WidgetsBinding.instance.platformDispatcher.locale,
+      ),
     );
+    _sendPending = false;
     _panel = PanelKind.none;
     _intentBarOpen = false;
     _cancelDismiss();
@@ -450,20 +607,52 @@ class PuckController extends ChangeNotifier {
       longitude: position?.longitude,
       accuracy: position?.accuracy,
       at: now,
+      strings: strings,
     );
 
+    // With no contact there is no message to describe, and the status the
+    // person needs is the one that points at the dialer. A fix that lands
+    // *after* the countdown used to overwrite "no contact" with "location
+    // found" -- a true sentence about the GPS, and useless to somebody
+    // standing in the street with nobody to text.
+    final String status = !_sos!.hasContact
+        ? _sos!.status
+        : position == null
+            ? strings.sosLocationMissing
+            : strings.sosLocationFound;
+
     _sos = _sos!.copyWith(
-      status: position == null
-          ? 'No GPS fix yet -- the message will say so'
-          : 'Location found',
+      status: status,
       body: body,
       position: position,
+      bodyPending: false,
     );
     notifyListeners();
+
+    // The countdown can finish before the fix lands (it usually does on a
+    // cold GPS). The send was remembered rather than dropped: a message that
+    // says "Location unavailable" twenty seconds late is worth infinitely
+    // more than the silence this used to produce.
+    if (_sendPending) {
+      await _deliverSos(body);
+    }
   }
 
   /// The countdown ran out with the finger still down. Torch, message,
   /// status light.
+  ///
+  /// The old version of this method was the worst bug in the app: it opened
+  /// the composer only `if (sos.hasContact && sos.body != null)`, and the body
+  /// only existed once the GPS came back. `locationTimeout` is eight seconds
+  /// and the countdown is three, so on a cold fix the countdown ended with a
+  /// null body and *nothing happened, ever* -- no message, no retry, no
+  /// error, and a status light that said "Finding your location" forever.
+  /// Someone pressing this in an emergency got silence.
+  ///
+  /// Now the intent is durable: fire a send when the body exists, otherwise
+  /// remember that a send is owed and fire it the moment the position
+  /// resolves (or fails, in which case the body says so). Nothing about this
+  /// path is allowed to no-op.
   Future<void> _fireSos() async {
     final SosView? sos = _sos;
     if (sos == null || sos.phase != SosPhase.counting) return;
@@ -474,21 +663,66 @@ class PuckController extends ChangeNotifier {
     final TorchService torch = _read<TorchService>(torchServiceProvider);
     unawaited(torch.startSos());
 
+    final bool oweSend = sos.hasContact && sos.body == null;
+
     _sos = sos.copyWith(
       phase: SosPhase.active,
       torchOn: true,
-      status: sos.position == null
-          ? 'Finding your location'
-          : 'Location found',
+      bodyPending: oweSend,
+      status: !sos.hasContact
+          ? strings.sosNoContact
+          : oweSend
+              ? strings.sosGettingLocation
+              : strings.sosLocationFound,
     );
     notifyListeners();
 
-    if (sos.hasContact && sos.body != null) {
-      await _read<MessagingService>(messagingServiceProvider).openSms(
-        recipient: _read<SettingsRepository>(settingsProvider).contactPhone,
-        body: sos.body!,
-      );
+    if (!sos.hasContact) return; // the sheet offers the dialer instead
+    if (oweSend) {
+      _sendPending = true;
+      return;
     }
+    await _deliverSos(sos.body!);
+  }
+
+  /// Hands the finished message to the platform composer, and says what
+  /// happened when it cannot. Never sends anything itself -- see
+  /// [MessagingService.openSms].
+  Future<void> _deliverSos(String body) async {
+    _sendPending = false;
+    final bool opened =
+        await _read<MessagingService>(messagingServiceProvider).openSms(
+      recipient: _read<SettingsRepository>(settingsProvider).contactPhone,
+      body: body,
+    );
+    if (!hasListeners || _sos == null) return;
+
+    _sos = _sos!.copyWith(
+      status: opened ? strings.sosMessageReady : strings.sosNoMessagingApp,
+      smsHandoffFailed: !opened,
+    );
+    notifyListeners();
+  }
+
+  /// Opens the platform dialer with the local emergency number.
+  ///
+  /// Never auto-dials: `tel:` opens the dial-pad pre-filled and a human
+  /// presses call. That is the same pocket-safety property the SMS handoff
+  /// has, and the reason this needs no permission at all.
+  Future<bool> dialEmergency() async {
+    final EmergencyNumber? emergency = _sos?.emergency;
+    if (emergency == null) return false;
+
+    final bool opened =
+        await _read<MessagingService>(messagingServiceProvider)
+            .dialEmergency(emergency.number);
+    if (!hasListeners || _sos == null) return opened;
+
+    _sos = _sos!.copyWith(
+      status: opened ? strings.sosDialerOpen : strings.sosNoDialer,
+    );
+    notifyListeners();
+    return opened;
   }
 
   /// "I'm safe." Both exits -- the button and the lifted finger -- land here.
@@ -498,6 +732,10 @@ class PuckController extends ChangeNotifier {
   }
 
   Future<void> _closeSos() async {
+    // Cancelling cancels the *intent*, not just the sheet: a message that
+    // arrives after an explicit cancellation is the pocket-safety promise
+    // broken.
+    _sendPending = false;
     _sosRunawayTimer?.cancel();
     _sosRunawayTimer = null;
     _sosCountdownTimer?.cancel();

@@ -58,7 +58,12 @@ class PuckGestureRecognizer extends OneSequenceGestureRecognizer {
   /// this arrives, the hold was never deliberate and the countdown dies.
   final VoidCallback? onPressEnd;
 
-  final Duration longPressDuration;
+  /// How long a press must survive before it becomes a long press.
+  ///
+  /// Not final, and not hard-wired to the design constant: settings can shorten
+  /// it, and a recogniser that has already been created for this bubble must
+  /// pick the new value up on the next rebuild rather than on the next launch.
+  Duration longPressDuration;
   final Duration doubleTapTimeout;
   final double swipeUpDistance;
 

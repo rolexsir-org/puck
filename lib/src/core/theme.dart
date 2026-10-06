@@ -4,12 +4,31 @@ import 'package:flutter/services.dart';
 /// The entire approved palette. Nothing outside this list may appear in the
 /// app; if a colour seems missing (amber for "acquiring GPS", for instance),
 /// the nearest token above is used instead of inventing a new one.
+///
+/// # Contrast (WCAG 2.1 AA, verified in `test/core/contrast_test.dart`)
+///
+/// `textMuted` was `#666666`: **3.66:1** on black and **3.29:1** on the card.
+/// It is used for 13px captions, where AA requires 4.5:1, so every quiet label
+/// in the app -- provenance labels, settings notes, the footer -- sat below
+/// the floor. It is now `#828282`: **5.46:1** on black, **4.91:1** on the
+/// card, still visibly the quietest text in the palette. A brightness change,
+/// not a redesign.
+///
+/// The rest were already compliant (measured, not assumed): `textSec`
+/// 7.37:1 / 6.63:1, `textPrim` 21:1 / 18.88:1.
+///
+/// One consequence worth stating: white on `emergency` is **3.55:1** and
+/// *fails* AA for 17px text, so the buttons that use the emergency fill draw
+/// their label in `background` instead -- black on that red is 5.92:1. Red is
+/// for the surface, not for the letters. Hover-free, disabled-free: the
+/// contrast is fixed, not state-dependent.
+///
 abstract final class PuckPalette {
   static const Color background = Color(0xFF000000);
   static const Color card = Color(0xFF111111);
   static const Color divider = Color(0xFF1F1F1F);
   static const Color mutedBg = Color(0xFF2A2A2A);
-  static const Color textMuted = Color(0xFF666666);
+  static const Color textMuted = Color(0xFF828282);
   static const Color textSec = Color(0xFF999999);
   static const Color textPrim = Color(0xFFFFFFFF);
   static const Color emergency = Color(0xFFFF3B30);

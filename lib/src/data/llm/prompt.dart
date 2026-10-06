@@ -41,8 +41,11 @@ abstract final class PuckPrompt {
   /// says "be brief" is a request; `max_completion_tokens` is a guarantee.
   /// Derived from the word limit rather than hand-tuned per mode, so the
   /// token cap and the word clamp can never disagree.
-  static int maxTokensFor(PuckMode mode) =>
-      16 + (wordLimitFor(mode) * 1.6).round();
+  /// Reasoning tokens are drawn from the same budget as visible tokens, so a
+  /// cap sized for the words alone can starve the answer and truncate it
+  /// mid-sentence. Three tokens per word plus a floor is generous for the
+  /// visible text and leaves the model room to think.
+  static int maxTokensFor(PuckMode mode) => 24 + (wordLimitFor(mode) * 3);
 
   /// Stop sequences.
   ///
@@ -66,7 +69,23 @@ abstract final class PuckPrompt {
 
   /// The phone's word budget. Answers render on one small card; forty words
   /// is already a paragraph on a phone held in one hand.
+  ///
+  /// This is the *one* number. The prompt stub, the clamp below and the
+  /// validator used to disagree (the prompt said 40, the clamp said 15, the
+  /// validator allowed 17), which meant the model was being told one thing,
+  /// allowed another and judged against a third. Every one of them now derives
+  /// from here.
   static const int phoneWordBudget = 15;
+
+  /// How much a mode may overshoot before the answer is rejected. Two words is
+  /// the difference between "Rain starting in 20 minutes" and the same
+  /// sentence with a stray "today"; it is not a licence to write paragraphs.
+  static const int validationTolerance = 2;
+
+  /// A hard ceiling on answer length, independent of word count -- a single
+  /// 600-character "word" is impossible by the numbers and entirely possible
+  /// from a model.
+  static const int maxAnswerChars = 400;
 
   /// Per-mode ceiling, clamped to the device budget.
   ///
@@ -75,7 +94,7 @@ abstract final class PuckPrompt {
   static int wordLimitFor(PuckMode mode) {
     final int perMode = switch (mode) {
       PuckMode.context => 10,
-      PuckMode.intent => 40,
+      PuckMode.intent => phoneWordBudget,
     };
     return perMode < phoneWordBudget ? perMode : phoneWordBudget;
   }
@@ -158,22 +177,23 @@ Length: 10 words maximum. No trailing period needed.''';
     if (event != null) {
       lines.add(
         'calendar_event: ${event.title} — '
-        '${event.isInProgress(snapshot.now) ? 'started ${PuckFormat.countdown(event.until(snapshot.now).abs())} ago' : 'starts ${PuckFormat.countdown(event.until(snapshot.now))}'}'
-        '${event.location != null && event.location!.isNotEmpty ? ' @ ${event.location}' : ''}',
+        '${_when(event, snapshot.now)}'
+        '${_at(event.location)}',
       );
     }
 
     final BatterySnapshot? battery = snapshot.battery;
     if (battery != null) {
       lines.add(
-        'battery: ${battery.level}%${battery.charging ? ', charging' : ', not charging'}',
+        'battery: ${battery.level}%${_charging(battery.charging)}',
       );
     }
 
     final WeatherSnapshot? weather = snapshot.weather;
     if (weather != null) {
       lines.add(
-        'weather: ${weather.temperatureC.round()}C, ${WeatherCodes.describe(weather.code)}',
+        'weather: ${weather.temperatureC.round()}C, '
+        '${WeatherCodes.describe(weather.code)}',
       );
     }
 
@@ -191,7 +211,7 @@ DECISIONS: when asked to choose or advise ("should I", "which one", "is it worth
 FACTS: state the fact. No preamble, no hedging, no source disclaimers.
 UNANSWERABLE: if the answer genuinely requires information you do not have, say so in under 8 words. Never invent a price, a name, a number, or a date.
 DEVICE ACTIONS: you have no connection to any device capability. If asked to set an alarm, add a reminder, send a message, or open an app, say it is not connected in under 8 words. Never claim you performed an action.
-Length: 40 words maximum.''';
+Length: 15 words maximum. The answer is rendered on one small card for a few seconds: past fifteen words it is a paragraph nobody finishes.''';
 
   // -- Output validation ----------------------------------------------------
 
@@ -201,6 +221,25 @@ Length: 40 words maximum.''';
     'sure thing', 'no problem', 'happy to', 'mode:', 'mode ', 'context:',
     'intent:',
   ];
+
+  /// True when the *start* of an answer is something we will not put on
+  /// screen. Split out from [isAcceptable] because the streaming path has to
+  /// judge an answer that is still arriving: filler can be caught from the
+  /// first few words, length cannot.
+  ///
+  /// Word boundaries matter here. "Sure." is filler; "Surely" is a sentence,
+  /// and the old `startsWith('sure')` test rejected both.
+  static bool hasBannedOpening(String text) {
+    final String lower = text.trimLeft().toLowerCase();
+    if (lower.isEmpty) return false;
+    if (lower.startsWith('mode') && lower.contains(':')) return true;
+    for (final String opener in _bannedOpeners) {
+      if (RegExp('^${RegExp.escape(opener)}(?![a-z])').hasMatch(lower)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /// Cheap client-side guard on model output.
   ///
@@ -212,19 +251,35 @@ Length: 40 words maximum.''';
   static bool isAcceptable(PuckMode mode, String text) {
     final String trimmed = text.trim();
     if (trimmed.isEmpty) return false;
-    if (trimmed.length > 400) return false;
-
-    final String lower = trimmed.toLowerCase();
-    for (final String opener in _bannedOpeners) {
-      if (lower.startsWith(opener)) return false;
-    }
-    // Mode echo.
-    if (lower.startsWith('mode') && lower.contains(':')) return false;
+    if (trimmed.length > maxAnswerChars) return false;
+    if (hasBannedOpening(trimmed)) return false;
 
     final int words =
         trimmed.split(RegExp(r'\s+')).where((String w) => w.isNotEmpty).length;
-    // +2 tolerance: a model that lands at 11 or 12 words is fine, one that
-    // lands at 30 has ignored the instruction entirely.
-    return words <= wordLimitFor(mode) + 2;
+    // Tolerance, not generosity: a model that lands at 11 or 12 words against
+    // a 10-word limit is fine, one that lands at 30 has ignored the
+    // instruction entirely -- and it always gets a second chance, because the
+    // deterministic line is already on screen behind it.
+    return words <= wordLimitFor(mode) + validationTolerance;
   }
+
+  /// "started 20m ago" / "starts in 20m", as one short clause.
+  ///
+  /// Split out of the envelope so the line stays inside the column limit and
+  /// so the two directions of the verb are one expression rather than two
+  /// almost-identical inline branches.
+  static String _when(CalendarEvent event, DateTime now) {
+    final Duration until = event.until(now);
+    if (event.isInProgress(now)) {
+      return 'started ${PuckFormat.countdown(until.abs())} ago';
+    }
+    return 'starts ${PuckFormat.countdown(until)}';
+  }
+
+  /// " @ The kitchen", or nothing at all.
+  static String _at(String? location) =>
+      location != null && location.isNotEmpty ? ' @ $location' : '';
+
+  static String _charging(bool charging) =>
+      charging ? ', charging' : ', not charging';
 }
