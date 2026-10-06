@@ -405,10 +405,30 @@ listing copy. Neither is published anywhere.
 
 ### CI
 
-`.github/workflows/ci.yml` **cannot be pushed from this environment**: the
-GitHub App token available here lacks the `workflows` permission, and every
-attempt is rejected with *"refusing to allow a GitHub App to create or update
-workflow files without `workflows` permission"*. The file is not in the tree
-(adding it would make every subsequent push to the branch fail). It has to be
-added by the repository owner; `.github/workflows/` is the only thing that has
-to be, and the checks it should run are exactly the six commands in §1.
+The workflow lives at **`tools/ci.yml`**, not `.github/workflows/ci.yml`, and
+that is not a style choice: the GitHub App credential available here lacks the
+`workflows` permission, so **every push is rejected** while any commit in the
+pushed range adds or edits a file under `.github/workflows/`:
+
+```
+! [remote rejected] arena/886b5115-puck -> arena/886b5115-puck
+  (refusing to allow a GitHub App to create or update workflow
+   `.github/workflows/ci.yml` without `workflows` permission)
+```
+
+That is also why commit `342f72a` ("core: fix six confident-wrong-answer…")
+was rewritten to remove a workflow file it had carried since the previous
+session: it was blocking the push of everything after it. Installing the
+workflow takes one command, by the owner, with a token that has the permission:
+
+```bash
+mkdir -p .github/workflows && git mv tools/ci.yml .github/workflows/ci.yml
+git commit -m "ci: install the workflow"
+```
+
+What it runs: `flutter pub get`, an ARB-freshness check (`python3
+tools/gen_arb.py` plus `git diff --exit-code -- lib/l10n`), `dart format
+--set-exit-if-changed`, `flutter analyze`, `flutter test`, the worker's 14
+`node --test` cases, and a debug-APK canary. The formatting step is expected to
+be red until `dart format .` is run once (§1) -- kept in deliberately, because
+a formatting rule nobody runs is not a rule.
