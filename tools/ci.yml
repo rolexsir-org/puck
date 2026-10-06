@@ -71,6 +71,13 @@ jobs:
       - name: Test
         run: flutter test --reporter expanded
 
+      # Regexes that are "nearly right" fail silently and land on a user: a
+      # raw-string RegExp with two backslashes matches the letter s instead of
+      # whitespace. The analyzer has no rule for it and the pattern still
+      # compiles, so this script checks every RegExp literal in the tree.
+      - name: Regex sanity
+        run: python3 tools/check_regexes.py .
+
       # The shared answer service is JavaScript, and it can be executed
       # anywhere: 14 tests, no Cloudflare account needed. This is the one part
       # of the tree that runs in CI exactly as it runs locally.
