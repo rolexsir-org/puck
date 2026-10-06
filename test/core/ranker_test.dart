@@ -1,6 +1,10 @@
+import 'dart:ui' show Locale;
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:puck/src/data/models/context.dart';
 import 'package:puck/src/domain/context_ranker.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 
 /// The tap card is deterministic and it is the highest-frequency surface in
 /// the app, so its edge cases are worth locking down: an all-day entry is a
@@ -8,8 +12,16 @@ import 'package:puck/src/domain/context_ranker.dart';
 void main() {
   final DateTime now = DateTime(2026, 1, 15, 9);
 
+  // Non-English date formatting needs the ICU tables loaded; the app does this
+  // in main(), the tests do it here.
+  setUpAll(() async {
+    await initializeDateFormatting();
+  });
+  final PuckStrings strings = PuckStrings.forLocale(const Locale('en'));
+
   ContextItem rankWith(CalendarEvent? event) => ContextRanker.rank(
         ContextSnapshot(now: now, nextEvent: event),
+        strings,
       );
 
   CalendarEvent allDay({
@@ -107,6 +119,20 @@ void main() {
     });
   });
 
+  group('every headline exists in the user\'s language', () {
+    test('Spanish produces Spanish, and no English leaks', () {
+      final PuckStrings es = PuckStrings.forLocale(const Locale('es'));
+      final ContextItem item = ContextRanker.timeOfDay(now, es);
+
+      expect(item.label, es.labelGoodMorning);
+      expect(item.headline, contains(es.clock(now)));
+      expect(item.headline, isNot(contains('GOOD MORNING')));
+      // A Latin-American/Spanish phone gets a 24-hour clock; that is the
+      // whole point of formatting through the locale.
+      expect(item.headline, isNot(contains('AM')));
+    });
+  });
+
   group('priority order', () {
     test('an imminent meeting outranks a low battery', () {
       final ContextItem item = ContextRanker.rank(
@@ -118,6 +144,7 @@ void main() {
           ),
           battery: const BatterySnapshot(level: 4, charging: false),
         ),
+        strings,
       );
 
       expect(item.kind, ContextKind.calendar);
@@ -141,6 +168,7 @@ void main() {
             ],
           ),
         ),
+        strings,
       );
 
       expect(item.kind, ContextKind.battery);

@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' show Locale;
 
+import 'package:intl/intl.dart';
 import 'package:puck/src/core/expression.dart';
-import 'package:puck/src/core/format.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 
 /// A deterministic, offline intent resolver.
 ///
@@ -14,14 +16,35 @@ import 'package:puck/src/core/format.dart';
 ///
 /// Returns null when it has no opinion, letting the router escalate to the
 /// LLM.
+///
+/// # Language
+///
+/// The patterns are per-language, and a language with no pattern set gets an
+/// empty one -- which means an unanswered question rather than a wrong answer.
+/// That direction of failure is the whole design: a Spanish speaker asking
+/// "¿cara o cruz?" gets a real coin flip, and a Spanish speaker asking
+/// something this class does not understand falls through to the model or to
+/// the offline line instead of matching an English keyword by accident.
 class LocalIntentResolver {
-  LocalIntentResolver({math.Random? random}) : _rng = random ?? math.Random();
+  LocalIntentResolver({math.Random? random, Locale? locale})
+      : _rng = random ?? math.Random(),
+        _locale = locale ?? const Locale('en');
 
   final math.Random _rng;
+  Locale _locale;
+
+  /// The UI sets this from `Localizations.localeOf` on the first frame; the
+  /// resolver is app-scoped and outlives any widget.
+  void setLocale(Locale locale) => _locale = locale;
+
+  PuckStrings get _strings => PuckStrings.forLocale(_locale);
 
   /// The one honest sentence for "I cannot answer this without the network".
   /// Never an error dialog, never an apology tour -- one line, then the
   /// things that still work.
+  ///
+  /// English is kept as a static so that code with no locale (tests, the
+  /// router's own fallback) has a single canonical value.
   static const String offlineLine = 'Offline. Try coin, dice, or maths.';
 
   String? tryResolve(String raw) {
@@ -49,14 +72,69 @@ class LocalIntentResolver {
     return null;
   }
 
-  String offline() => offlineLine;
+  String offline() => _strings.offlineLine;
+
+  /// The one cloud failure the user can act on: their own key was refused.
+  String keyRejected() => _strings.answerKeyRejected;
 
   // -- Handlers ------------------------------------------------------------
 
   String? _coin(String q) {
-    if (!RegExp(r'\b(coin|flip|heads|tails|toss)\b').hasMatch(q)) return null;
-    return _rng.nextBool() ? 'Heads.' : 'Tails.';
+    final List<String> patterns = _patterns('coin');
+    for (final String p in patterns) {
+      if (RegExp(p).hasMatch(q)) {
+        return _rng.nextBool() ? _strings.coinHeads : _strings.coinTails;
+      }
+    }
+    return null;
   }
+
+  /// Per-language pattern sets. A language that is not listed matches
+  /// nothing, which is the honest failure.
+  List<String> _patterns(String kind) {
+    final Map<String, List<String>>? table = _patternTable[kind];
+    if (table == null) return const <String>[];
+    final List<String>? exact = table[_locale.languageCode];
+    if (exact != null) return exact;
+    return table['en'] ?? const <String>[];
+  }
+
+  static const Map<String, Map<String, List<String>>> _patternTable =
+      <String, Map<String, List<String>>>{
+    'coin': <String, List<String>>{
+      'en': <String>[r'\b(coin|flip|heads|tails|toss)\b'],
+      'es': <String>[r'\b(moneda|monedas|cara o cruz|cruz o cara|lanza|lanzo|echar a suertes|suerte)\b'],
+    },
+    'diceWords': <String, List<String>>{
+      'en': <String>[r'\b(dice|die|roll)\b'],
+      'es': <String>[r'\b(dado|dados|tira|tiro|lance)\b'],
+    },
+    'time': <String, List<String>>{
+      'en': <String>[
+        r'^(the\s+)?(time|clock)$',
+        r"\bwhat(?:'s| is|s)?\s+(?:the\s+)?(?:time|clock)\b",
+        r'\bwhat time is it\b',
+      ],
+      'es': <String>[
+        r'^(la\s+)?(hora)$',
+        r'\bqu[eé] horas? (?:es|son)\b',
+        r'\bla hora\b',
+      ],
+    },
+    'date': <String, List<String>>{
+      'en': <String>[
+        r'^(the\s+)?(date|day|today)$',
+        r"\bwhat(?:'s| is|s)?\s+(?:the\s+)?(?:date|today'?s date)\b",
+        r'\bwhat day (?:is it|is today|are we)\b',
+        r"\btoday'?s (?:date|day)\b",
+      ],
+      'es': <String>[
+        r'^(la\s+)?(fecha|d[ií]a|hoy)$',
+        r'\bqu[eé] (?:fecha|d[ií]a) (?:es|es hoy)\b',
+        r'\bfecha de hoy\b',
+      ],
+    },
+  };
 
   String? _dice(String q) {
     final RegExpMatch? dnd =
@@ -72,8 +150,10 @@ class LocalIntentResolver {
       return count == 1 ? '$total.' : '${count}d$sides = $total.';
     }
 
-    if (RegExp(r'\b(dice|die|roll)\b').hasMatch(q)) {
-      return '${_rng.nextInt(6) + 1}.';
+    for (final String pattern in _patterns('diceWords')) {
+      if (RegExp(pattern).hasMatch(q)) {
+        return '${_rng.nextInt(6) + 1}.';
+      }
     }
     return null;
   }
@@ -93,9 +173,20 @@ class LocalIntentResolver {
   /// ("what's 47 times 83"). The spoken forms are normalised to operators
   /// and handed to the same evaluator, so both paths share one grammar.
   String? _maths(String q) {
+    // Spoken arithmetic, in the languages Puck ships. The operator words are
+    // replaced rather than the question being pattern-matched, so both
+    // languages share one grammar and one evaluator.
     final String normalised = q
-        .replaceAll(RegExp(r"^(what'?s|what is|whats|calculate|compute)\s+"), '')
+        .replaceAll(
+          RegExp(
+            r"^(what'?s|what is|whats|calculate|compute|"
+            "cu[aá]nto es|calcula|cu[aá]nto son)"
+            r'\s+',
+          ),
+          '',
+        )
         .replaceAll('?', '')
+        .replaceAll('¿', '')
         .replaceAll('×', '*')
         .replaceAll('÷', '/')
         .replaceAll(RegExp(r'\btimes\b'), '*')
@@ -103,6 +194,12 @@ class LocalIntentResolver {
         .replaceAll(RegExp(r'\bplus\b'), '+')
         .replaceAll(RegExp(r'\bminus\b'), '-')
         .replaceAll(RegExp(r'\bdivided by\b'), '/')
+        .replaceAll(RegExp(r'\bm[aá]s\b'), '+')
+        .replaceAll(RegExp(r'\bmenos\b'), '-')
+        .replaceAll(RegExp(r'\b(?:dividido|entre)\s+por\b'), '/')
+        .replaceAll(RegExp(r'\bmultiplicado por\b'), '*')
+        .replaceAll(RegExp(r'\bpor\b'), '*')
+        .replaceAll(RegExp(r'\bequisdividido\b'), '/')
         .replaceAll('x', '*')
         .trim();
 
@@ -126,25 +223,18 @@ class LocalIntentResolver {
   /// the offline line, both of which are honest.
   String? _timeDate(String q) {
     final DateTime now = DateTime.now();
+    final bool asksTime =
+        _patterns('time').any((String p) => RegExp(p).hasMatch(q));
+    final bool asksDate =
+        _patterns('date').any((String p) => RegExp(p).hasMatch(q));
 
-    final bool asksTime = RegExp(r'^(the\s+)?(time|clock)$').hasMatch(q) ||
-        RegExp(r"\bwhat(?:'s| is|s)?\s+(?:the\s+)?(?:time|clock)\b")
-            .hasMatch(q) ||
-        RegExp(r'\bwhat time is it\b').hasMatch(q);
-
-    final bool asksDate = RegExp(r'^(the\s+)?(date|day|today)$').hasMatch(q) ||
-        RegExp(r"\bwhat(?:'s| is|s)?\s+(?:the\s+)?(?:date|today'?s date)\b")
-            .hasMatch(q) ||
-        RegExp(r"\bwhat day (?:is it|is today|are we)\b").hasMatch(q) ||
-        RegExp(r"\btoday'?s (?:date|day)\b").hasMatch(q);
-
-    if (asksTime) return '${PuckFormat.clock(now)}.';
+    if (asksTime) return '${_strings.clock(now)}.';
     if (asksDate) {
-      const List<String> days = <String>[
-        'Monday', 'Tuesday', 'Wednesday', 'Thursday', //
-        'Friday', 'Saturday', 'Sunday',
-      ];
-      return '${days[now.weekday - 1]}, ${PuckFormat.stamp(now)}.';
+      // The day name comes from the locale's own tables rather than a
+      // hand-written English list, so the answer is in the language it was
+      // asked in.
+      final String day = DateFormat.EEEE(_strings.localeName).format(now);
+      return '$day, ${_strings.stamp(now)}.';
     }
     return null;
   }
