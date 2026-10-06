@@ -5,7 +5,7 @@ Puck is one button. Four gestures. No menus, no onboarding, no configuration. It
 ![Puck — one button, four gestures](docs/hero.png)
 
 Flutter · Dart 3 · Android 7+ · iOS: source only, never built — see
-[FINDINGS.md](FINDINGS.md) §4.3
+
 
 ---
 
