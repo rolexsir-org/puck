@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/data/services/speech_service.dart';
 import 'package:puck/src/features/puck/puck_controller.dart';
+import 'package:puck/src/l10n/puck_strings.dart';
 import 'package:puck/src/providers.dart';
 
 /// The swipe-up surface: a pill that rises from wherever the bubble was,
@@ -52,6 +54,10 @@ class _IntentBarState extends ConsumerState<IntentBar>
   late final Animation<Rect?> _pill;
 
   double _dragDistance = 0;
+
+  /// True once the current answer has been announced as finished, so the
+  /// announcement fires once rather than on every rebuild.
+  bool _announcedComplete = false;
 
   /// Captured rather than read in `dispose()`: the provider container can be
   /// gone by then, and a stale listener on a shared service is exactly the bug
@@ -104,6 +110,27 @@ class _IntentBarState extends ConsumerState<IntentBar>
     super.dispose();
   }
 
+  /// Tells a screen-reader user that the answer stopped growing.
+  ///
+  /// Without this, the end of a streamed answer is silence: the same silence
+  /// as a request that never came back. The card carries a blinking cursor for
+  /// everyone else -- this is the textual equivalent.
+  void _announceIfComplete(IntentView? intent) {
+    final bool complete = intent != null && !intent.streaming;
+    if (!complete) {
+      _announcedComplete = false;
+      return;
+    }
+    if (_announcedComplete) return;
+    _announcedComplete = true;
+    final String message = PuckStrings.of(context).answerComplete;
+    final TextDirection direction = Directionality.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      SemanticsService.announce(message, direction);
+    });
+  }
+
   Future<void> _submit() async {
     final String query = _field.text.trim();
     if (query.isEmpty) return;
@@ -148,6 +175,8 @@ class _IntentBarState extends ConsumerState<IntentBar>
   @override
   Widget build(BuildContext context) {
     final IntentView? intent = widget.controller.intent;
+    final PuckStrings s = PuckStrings.of(context);
+    _announceIfComplete(intent);
 
     // The keyboard is handled by the Scaffold's resize, which animates in
     // lock-step with the OS keyboard -- no jump, no double-compensation.
@@ -190,10 +219,13 @@ class _IntentBarState extends ConsumerState<IntentBar>
                 animation: _rise,
                 builder: (BuildContext context, Widget? child) {
                   final Rect r = _pill.value ?? Rect.zero;
+                  // Directional alignment and insets: in an RTL locale the
+                  // pill must rise from the right-hand edge it was thrown
+                  // from, not from the left one.
                   return Align(
-                    alignment: Alignment.bottomLeft,
+                    alignment: AlignmentDirectional.bottomStart,
                     child: Container(
-                      margin: EdgeInsets.only(left: r.left),
+                      margin: EdgeInsetsDirectional.only(start: r.left),
                       width: r.width,
                       child: child,
                     ),
@@ -205,6 +237,7 @@ class _IntentBarState extends ConsumerState<IntentBar>
                   listening: _listening,
                   onSubmit: _submit,
                   onMic: _toggleMic,
+                  strings: s,
                 ),
               ),
               const SizedBox(height: PuckConstants.screenMargin),
@@ -347,6 +380,7 @@ class _InputRow extends StatelessWidget {
     required this.listening,
     required this.onSubmit,
     required this.onMic,
+    required this.strings,
   });
 
   final TextEditingController controller;
@@ -354,6 +388,7 @@ class _InputRow extends StatelessWidget {
   final ValueNotifier<bool> listening;
   final Future<void> Function() onSubmit;
   final Future<void> Function() onMic;
+  final PuckStrings strings;
 
   @override
   Widget build(BuildContext context) {
@@ -379,20 +414,24 @@ class _InputRow extends StatelessWidget {
             children: <Widget>[
               const SizedBox(width: 12),
               Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  style: PuckType.primary.copyWith(
-                    fontWeight: FontWeight.w400,
-                  ),
-                  cursorWidth: 2,
-                  textInputAction: TextInputAction.go,
-                  onSubmitted: (String _) => unawaited(onSubmit()),
-                  decoration: const InputDecoration(
-                    hintText: 'Ask anything.',
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
+                child: Semantics(
+                  textField: true,
+                  label: strings.intentFieldLabel,
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    style: PuckType.primary.copyWith(
+                      fontWeight: FontWeight.w400,
+                    ),
+                    cursorWidth: 2,
+                    textInputAction: TextInputAction.go,
+                    onSubmitted: (String _) => unawaited(onSubmit()),
+                    decoration: InputDecoration(
+                      hintText: strings.askAnything,
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
                 ),
               ),
@@ -403,12 +442,18 @@ class _InputRow extends StatelessWidget {
                     return _RoundButton(
                       icon: Icons.arrow_upward_rounded,
                       filled: true,
+                      label: strings.sendAnswer,
                       onTap: () => unawaited(onSubmit()),
                     );
                   }
                   return _RoundButton(
                     icon: active ? Icons.stop_rounded : Icons.mic_none_rounded,
                     active: active,
+                    // The toggled state is part of the label, not just the
+                    // colour of the button: a screen reader announces "Stop
+                    // listening" while the mic is live.
+                    label: active ? strings.micStop : strings.micStart,
+                    toggled: active,
                     onTap: () => unawaited(onMic()),
                   );
                 },
@@ -425,38 +470,55 @@ class _RoundButton extends StatelessWidget {
   const _RoundButton({
     required this.icon,
     required this.onTap,
+    required this.label,
     this.filled = false,
     this.active = false,
+    this.toggled = false,
   });
 
   final IconData icon;
   final VoidCallback onTap;
+
+  /// What a screen reader says. Never empty: an icon-only button with no label
+  /// is a button nobody can use without sight.
+  final String label;
+
   final bool filled;
   final bool active;
 
+  /// Whether the button is in a latched state (the mic is listening).
+  final bool toggled;
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: PuckConstants.pressOut,
-        curve: Curves.easeOutCubic,
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: filled
-              ? PuckPalette.textPrim
-              : (active
-                  ? PuckPalette.emergency
-                  : Colors.transparent),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          size: 20,
-          color: filled
-              ? PuckPalette.background
-              : (active ? PuckPalette.textPrim : PuckPalette.textSec),
+    return Semantics(
+      button: true,
+      label: label,
+      toggled: toggled,
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: PuckConstants.pressOut,
+            curve: Curves.easeOutCubic,
+            // 48dp: the minimum a thumb can reliably hit, including for a
+            // thumb that shakes.
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: filled
+                  ? PuckPalette.textPrim
+                  : (active ? PuckPalette.emergency : Colors.transparent),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: filled
+                  ? PuckPalette.background
+                  : (active ? PuckPalette.textPrim : PuckPalette.textSec),
+            ),
+          ),
         ),
       ),
     );
