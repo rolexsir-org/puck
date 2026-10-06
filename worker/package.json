@@ -1,0 +1,13 @@
+{
+  "name": "puck-answers-worker",
+  "private": true,
+  "description": "The shared answer service for Puck (reference implementation; not deployed).",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

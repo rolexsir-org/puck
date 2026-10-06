@@ -49,6 +49,7 @@ Everything below in §2 is what *was* run.
 | Key-reference scan (`text('…')` / `format('…')` in `puck_strings.dart` vs the map) | `referenced 150, missing []` | Every key the code asks for exists. **This found a real bug** (§3.1). |
 | The safety phrase list, ported to Python and run against 18 crisis phrases + 13 ordinary queries | `patterns found: 53`, `unmatched crisis phrases: []`, `false positives: []` | The phrase list in `PuckSafety` matches what it says it matches and nothing else among ordinary queries. Python's regex engine and Dart's agree on this subset. |
 | WCAG contrast arithmetic, in Python, then asserted in `test/core/contrast_math_test.dart` | see §3.2 | The palette ratios in the code comment are the actual ratios. |
+| `node --test worker/test/*.test.mjs` | `tests 14 / pass 14 / fail 0` | **The shared answer service's rules, executed.** Kill switch, per-device hourly limit, global daily ceiling, request-shape validation, refusal to forward a non-Puck prompt, no upstream-body leakage, and "the only keys written are counters". This is the one part of the tree where "it passes" is an honest sentence. |
 | `grep`/`sed` over the tree | various | The contradictions in §3. |
 | `git log`, `git status` | 5 commits, clean tree | The work is committed in area-scoped commits. |
 
@@ -229,27 +230,41 @@ only place with a `Localizations` scope is `PuckHome.build`; nothing called
 
 ### 4.1 Running the shared answer proxy, and its ceiling
 
-**Not built.** The plan was a Cloudflare Worker holding a Groq key as a secret,
-reached through the unchanged `LlmProvider.complete`, with an anonymous device
-UUID, ~60 requests/hour/device, a global daily ceiling, size caps, a kill
-switch, and a client that degrades to `LocalIntentResolver` with one honest
-line. What is in the tree today is the *client-side* half of the cost control
-(skip the polish when the local line is short, at most one polish per 20
-seconds, cache a polish for 10 minutes) and the gate that makes the privacy
-switch real.
+**Written, tested, and switched off.** The code exists on both sides:
 
-Why it was not built: it spends the owner's money. A proxy that anyone can
-install an app against is a bill, and the two numbers that decide it -- the
-monthly ceiling and who pays it -- are not engineering choices. The
-recommendation is still that the proxy is the right shape (it keeps the key off
-every phone, it is the only way the app answers questions with zero setup,
-which is the product's first principle), but turning it on is a business
-decision.
+* `worker/` — a Cloudflare Worker that holds the Groq key as a secret. It
+  validates the request shape, requires Puck's prompt marker (so it is not a
+  free general-purpose LLM), sets the sampling parameters itself (so a modified
+  app cannot buy a longer answer), enforces a per-device hourly limit and a
+  global daily ceiling, has a one-variable kill switch, and stores nothing but
+  counters. `worker/test/handler.test.mjs` runs with `node --test` and **14 of
+  14 pass — actually executed** (§1).
+* `lib/src/data/llm/proxy_provider.dart` — the client half, behind the
+  unchanged `LlmProvider.complete`. The URL comes from
+  `--dart-define=PUCK_PROXY_URL=...`; with no define (the default build)
+  `isConfigured` is false and the app sends nothing. The device UUID from
+  settings is the only identity it sends, and there is no key anywhere in the
+  repository.
+* `providers.dart` picks the path: **a key the user pasted wins over the shared
+  service** (the privacy screen promises exactly that, and their key is their
+  bill, not the project's), otherwise the shared service when configured,
+  otherwise the offline resolver.
 
-**Decide:** (a) run it or not; (b) the global daily ceiling; (c) the per-device
-limit (60/h is a guess that fits one person with a habit); (d) what happens at
-50/90/100% of the ceiling -- the plan assumes degrade to the offline resolver
-with one honest line, never a paywall in the middle of a question.
+**Not switched on.** Nobody has deployed the Worker and no build defines the
+URL, because deploying it spends the owner's money and there is no Cloudflare
+account (or permission) here. The recommendation is that this is the right
+shape — it keeps the key off every phone, and it is the only design in which
+"ask anything" works on a fresh install with no setup, which is the product's
+first principle and the one thing a new user still cannot get today.
+
+**Decide:** (a) deploy it, or delete it and keep the pasted-key path as the
+only cloud route; (b) the global daily ceiling (`DAILY_CEILING`, default
+20000 requests/day in `wrangler.toml`); (c) the per-device limit
+(`DEVICE_HOURLY_LIMIT`, default 60 — a guess that fits one person with a
+habit); (d) what happens at 50/90/100% of the ceiling. The plan assumes
+degrade to the offline resolver with one honest line and never a paywall in
+the middle of a question after someone has typed it; `worker/README.md`
+records that response.
 
 ### 4.2 Which languages ship next
 
@@ -370,7 +385,7 @@ habit (tap and hold only).
 | # | Workstream | State |
 | - | ---------- | ----- |
 | 0 | `EVERYONE.md` | **Done.** 14 rows, each with a test and an honest verification column. |
-| 1 | Zero-setup intelligence | **Partial.** Client-side cost policy and the cloud gate are in. The Worker proxy, the device UUID rate limiting *server-side*, and the ceilings are **not built** -- §4.1. The direct-key path still works and is still off by default. |
+| 1 | Zero-setup intelligence | **Code complete, switched off.** The Worker, its 14 executed tests, the client provider, the device UUID, the ceilings, the kill switch and the client-side cost policy are all in the tree; the URL is not compiled in and nothing is deployed, because that is the owner's cost decision -- §4.1. The direct-key path still works and is still off by default. |
 | 2 | Emergency path | **Done in the code.** Durable send, dialer (never a call, no permission), regional number with an honest fallback, accessible SOS surface, tests for the failure states. Not run on a device. |
 | 3 | Discoverability | **Done in the code.** One-time gesture card after the first served tap; the hold ring that disappears once the hold has been found; a full action list for assistive technology; no tutorial, no onboarding. |
 | 4 | Accessibility | **Done in the code** except the parts that need a device: semantics on everything, 48dp targets, dynamic-type audit documented but unmeasured, contrast fixed and tested, reduce-motion honoured, nothing carried by colour or vibration alone. |

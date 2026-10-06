@@ -1,0 +1,30 @@
+# The shared answer service. See src/index.js and FINDINGS.md §4.1.
+#
+# Nothing here is deployed: the URL this file would produce is what
+# `--dart-define=PUCK_PROXY_URL=...` expects, and until someone deploys it and
+# builds with that define, the app never contacts anything.
+
+name = "puck-answers"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Per-device hourly limit and the global daily ceiling. Both are decisions the
+# owner makes, not defaults the code gets to keep: raise DEVICE_HOURLY_LIMIT
+# for a generous service, lower DAILY_CEILING to bound the bill. 0 disables the
+# daily ceiling entirely, which is the one setting that can produce a surprise
+# invoice; leaving it at a number is the recommendation.
+[vars]
+DEVICE_HOURLY_LIMIT = "60"
+DAILY_CEILING = "20000"
+KILL_SWITCH = "false"
+
+# Counters only: this namespace holds a number per device-hour and one per day,
+# both with a TTL. No prompt, no answer, no identifier that outlives the hour.
+# Create it once with `npx wrangler kv namespace create PUCK_KV` and paste the
+# id below.
+[[kv_namespaces]]
+binding = "PUCK_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# The key itself is a secret, never a variable and never in this file:
+#   npx wrangler secret put GROQ_API_KEY

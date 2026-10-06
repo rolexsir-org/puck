@@ -25,6 +25,14 @@ only says "fixes" is an entry nobody can act on later.
   the three gestures a screen reader cannot express as actions, a full action
   list shown only while assistive technology is active, localized action names,
   a settings screen with 48dp targets, and reduce-motion support.
+* **The shared answer service** (`worker/` + `data/llm/proxy_provider.dart`): a
+  Cloudflare Worker that holds one Groq key so no phone has to, with a kill
+  switch, a per-device hourly limit, a global daily ceiling, server-side
+  sampling parameters and a prompt-marker check that keeps it from being a free
+  general-purpose LLM. Fourteen tests run with `node --test
+  worker/test/*.test.mjs` and pass. **Not deployed, and off in every build**
+  unless someone compiles in `--dart-define=PUCK_PROXY_URL=...`: running it
+  spends the maintainer's money (FINDINGS.md §4.1).
 * **A crisis interception** (`domain/safety.dart`): first-person crisis
   phrasing is answered on the device with one fixed, localized line and never
   reaches the model.

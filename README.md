@@ -16,7 +16,9 @@ flutter pub get
 flutter run
 ```
 
-The app runs fully offline on first launch with no configuration: tap, double-tap, hold and the local half of swipe-up all work on a phone in airplane mode with nothing set up. To enable open-ended answers on swipe-up, open **Settings**, paste a free key from [console.groq.com/keys](https://console.groq.com/keys), done. That path is optional, demoted, and off by default; the shared answer service described in FINDINGS.md §4.1 is not built.
+The app runs fully offline on first launch with no configuration: tap, double-tap, hold and the local half of swipe-up all work on a phone in airplane mode with nothing set up. To enable open-ended answers on swipe-up, open **Settings**, paste a free key from [console.groq.com/keys](https://console.groq.com/keys), done. That path is optional and demoted.
+
+The zero-setup route for the same thing is `worker/` — a Cloudflare Worker that holds one key so no phone has to, with a kill switch and a daily ceiling, tested by `node --test worker/test/*.test.mjs`. **It is not deployed and no build points at it**: a shared answer service spends the maintainer's money, so the URL arrives as `--dart-define=PUCK_PROXY_URL=...` and the default build sends nothing. See FINDINGS.md §4.1.
 
 Puck ships in **English and Spanish**, completely. A phone set to any other language reads English rather than blanks, and adding a language is one map plus one ARB file (`lib/src/l10n/`, `lib/l10n/`) — the RTL layout work is already in the tree.
 
@@ -54,6 +56,8 @@ lib/
     │   ├── repositories/        settings (secure key storage), jokes (shuffle bag), context (parallel gather)
     │   └── llm/                 Groq SSE client, cloud gate, hardened prompt, deterministic local resolver
     ├── domain/                  context ranker (the priority list), intent router (device vs cloud), safety (crisis line)
+    ├── settings/, privacy/      the two screens behind the bubble
+    └── (repo root) tools/       ARB generation;  worker/  the shared answer service
     └── features/
         ├── puck/                controller, custom gesture recogniser, spring physics, bubble, cards, intent bar, SOS sheet, action list
         ├── settings/            the one configuration screen

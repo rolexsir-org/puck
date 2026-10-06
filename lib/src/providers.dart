@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:puck/src/core/haptics.dart';
 import 'package:puck/src/data/llm/gated_provider.dart';
 import 'package:puck/src/data/llm/groq_provider.dart';
+import 'package:puck/src/data/llm/llm_provider.dart';
 import 'package:puck/src/data/llm/local_fallback_provider.dart';
+import 'package:puck/src/data/llm/proxy_provider.dart';
 import 'package:puck/src/data/repositories/context_repository.dart';
 import 'package:puck/src/data/repositories/joke_repository.dart';
 import 'package:puck/src/data/repositories/settings_repository.dart';
@@ -108,11 +110,37 @@ final Provider<GroqLlmProvider> groqProvider = Provider<GroqLlmProvider>(
 final Provider<LocalIntentResolver> localResolverProvider =
     Provider<LocalIntentResolver>((Ref ref) => LocalIntentResolver());
 
+/// The shared answer service (see `proxy_provider.dart`). Ships off: with no
+/// `PUCK_PROXY_URL` compiled in, [ProxyLlmProvider.isConfigured] is false and
+/// nothing in the app ever contacts it. Turning it on is a cost decision, not
+/// a code one -- FINDINGS.md §4.1.
+final Provider<ProxyLlmProvider> proxyProvider = Provider<ProxyLlmProvider>(
+  (Ref ref) {
+    final ProxyLlmProvider provider =
+        ProxyLlmProvider(settings: ref.watch(settingsProvider));
+    ref.onDispose(provider.dispose);
+    return provider;
+  },
+);
+
+/// The one cloud answer path, and which of the two ways in it uses.
+///
+/// A key the user pasted wins over the shared service: the privacy screen
+/// promises that the shared service is not used when someone has their own
+/// key, and their key is their bill rather than the project's. Everyone else
+/// -- which is everyone on a fresh install -- gets the shared service when one
+/// is configured, and the offline resolver when it is not.
+final Provider<LlmProvider> llmProvider = Provider<LlmProvider>((Ref ref) {
+  final GroqLlmProvider groq = ref.watch(groqProvider);
+  if (groq.isConfigured) return groq;
+  return ref.watch(proxyProvider);
+});
+
 /// Every cloud answer goes through the gate, so the "nothing leaves your
 /// phone" switch is one check rather than a per-feature promise.
 final Provider<GatedLlmProvider> gatedLlmProvider = Provider<GatedLlmProvider>(
   (Ref ref) => GatedLlmProvider(
-    inner: ref.watch(groqProvider),
+    inner: ref.watch(llmProvider),
     settings: ref.watch(settingsProvider),
   ),
 );
