@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:puck/src/data/services/speech_service.dart';
 import 'package:puck/src/voice/model_store.dart';
-import 'package:puck/src/voice/sherpa_engine.dart';
+import 'package:puck/src/voice/on_device_engine.dart';
 import 'package:puck/src/voice/voice_model.dart';
 import 'package:record/record.dart';
 
@@ -64,7 +64,7 @@ final class VocalFailure extends VocalEvent {
 ///
 /// The controller above this owns the session state machine; this interface is
 /// the seam that lets that machine be tested with a scripted fake instead of a
-/// microphone. Two implementations: [SherpaTranscriber] (offline, VAD + ASR in
+/// microphone. Two implementations: [OnDeviceTranscriber] (offline, VAD + ASR in
 /// isolates) and [PlatformTranscriber] (Android's own recogniser, which needs a
 /// network on many phones but needs no download).
 abstract interface class Transcriber {
@@ -102,7 +102,7 @@ class TranscriberException implements Exception {
   String toString() => 'TranscriberException: $message';
 }
 
-/// Offline: `record` for 16 kHz mono PCM, sherpa-onnx for VAD and ASR.
+/// Offline: `record` for 16 kHz mono PCM, the on-device engine for VAD and ASR.
 ///
 /// # The audio contract
 ///
@@ -112,13 +112,13 @@ class TranscriberException implements Exception {
 /// 16 kHz explicitly and `record` throws if the device cannot, which is a
 /// `VocalFailure` rather than silently feeding 44.1 kHz into a 16 kHz model
 /// (that produces confident nonsense: the pitch is wrong by 2.75x).
-class SherpaTranscriber implements Transcriber {
-  SherpaTranscriber({
+class OnDeviceTranscriber implements Transcriber {
+  OnDeviceTranscriber({
     required this.store,
     this.asrModel = VoiceModels.moonshineTinyEn,
     this.vadModel = VoiceModels.sileroVad,
     AudioRecorder? recorder,
-    SherpaSpeechEngine? engine,
+    OnDeviceSpeechEngine? engine,
   })  : _recorder = recorder ?? AudioRecorder(),
         _injectedEngine = engine;
 
@@ -126,9 +126,9 @@ class SherpaTranscriber implements Transcriber {
   final VoiceModel asrModel;
   final VoiceModel vadModel;
   final AudioRecorder _recorder;
-  final SherpaSpeechEngine? _injectedEngine;
+  final OnDeviceSpeechEngine? _injectedEngine;
 
-  SherpaSpeechEngine? _engine;
+  OnDeviceSpeechEngine? _engine;
   StreamSubscription<Uint8List>? _micSubscription;
   StreamSubscription<SpeechEvent>? _engineSubscription;
   final StreamController<VocalEvent> _events =
@@ -154,7 +154,7 @@ class SherpaTranscriber implements Transcriber {
   String get lastError => _lastError;
 
   @override
-  String get sourceLabel => 'sherpa-onnx ${asrModel.id}';
+  String get sourceLabel => 'on-device ${asrModel.id}';
 
   @override
   Stream<VocalEvent> get events => _events.stream;
@@ -183,8 +183,8 @@ class SherpaTranscriber implements Transcriber {
       return _availability;
     }
 
-    final SherpaSpeechEngine engine = _injectedEngine ??
-        SherpaSpeechEngine(
+    final OnDeviceSpeechEngine engine = _injectedEngine ??
+        OnDeviceSpeechEngine(
           SpeechEngineConfig(
             vadModelPath: _path(vadModel, vadModel.files.first),
             asrModelDir: store.directoryOf(asrModel),
@@ -200,7 +200,7 @@ class SherpaTranscriber implements Transcriber {
     // explanation. So the subscription follows the engine -- exactly one, for
     // whichever engine is current, because two would deliver every transcript
     // twice and the second "torch on" would turn the torch back off.
-    final SherpaSpeechEngine? previous = _engine;
+    final OnDeviceSpeechEngine? previous = _engine;
     if (previous != null && !identical(previous, engine)) previous.dispose();
     await _engineSubscription?.cancel();
     _engineSubscription = engine.events.listen(_onEngineEvent);
@@ -225,7 +225,7 @@ class SherpaTranscriber implements Transcriber {
 
   @override
   Future<void> start() async {
-    final SherpaSpeechEngine? engine = _engine;
+    final OnDeviceSpeechEngine? engine = _engine;
     if (engine == null || !engine.isReady) {
       throw const TranscriberException('the voice engine is not ready');
     }
@@ -462,7 +462,7 @@ class PreferredTranscriber implements Transcriber {
     required this.platform,
   });
 
-  final SherpaTranscriber offline;
+  final OnDeviceTranscriber offline;
   final PlatformTranscriber platform;
 
   Transcriber? _chosen;
@@ -553,7 +553,7 @@ class PreferredTranscriber implements Transcriber {
 
 /// 16-bit little-endian PCM to float samples in [-1, 1].
 ///
-/// The same conversion as the sherpa-onnx Flutter example, kept here as a pure
+/// The same conversion the reference implementation uses, kept here as a pure
 /// function so it can be tested with a known byte pattern rather than by
 /// listening.
 Float32List pcm16ToFloat32(Uint8List bytes) {

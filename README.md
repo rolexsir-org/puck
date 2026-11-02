@@ -45,8 +45,8 @@ Cost is bounded on the device rather than by hope: a polish is skipped when the 
 ## Voice
 
 Puck answers to a voice, and it does the phone commands itself. Tap the mic,
-speak, and the sentence is recognised **on the device** (`sherpa_onnx` with
-Silero VAD and Moonshine tiny) and then offered to a hand-written parser: volume,
+speak, and the sentence is recognised **on the device** (Silero VAD, then a
+Moonshine tiny recogniser) and then offered to a hand-written parser: volume,
 torch, opening apps, battery, time and date, arithmetic and unit conversion,
 timers and alarms. If the parser says the sentence is not a command, it goes to
 the ordinary answer path — the model is never in the loop for changing your

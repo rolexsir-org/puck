@@ -43,7 +43,7 @@ flutter_export_environment.sh
 .env
 
 # Reference material -- read-only research clones, never part of the build.
-# sherpa-onnx is Apache-2.0 and is pulled in as the published `sherpa_onnx`
+# The offline speech engine is Apache-2.0 and is pulled in as the published pub
 # package, not vendored; this checkout exists so the integration can be read
 # against the real source. See docs/voice.md.
 /reference/

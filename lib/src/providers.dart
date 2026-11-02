@@ -215,7 +215,7 @@ final Provider<CommandRouter> commandRouterProvider =
 final Provider<Transcriber> transcriberProvider = Provider<Transcriber>((Ref ref) {
   final VoiceModelStore store = ref.watch(voiceModelStoreProvider);
   final PreferredTranscriber transcriber = PreferredTranscriber(
-    offline: SherpaTranscriber(store: store),
+    offline: OnDeviceTranscriber(store: store),
     platform: PlatformTranscriber(
       speech: ref.watch(speechServiceProvider),
     ),
@@ -237,7 +237,7 @@ final Provider<SpeechOutput> speechOutputProvider = Provider<SpeechOutput>(
   (Ref ref) {
     final SpeechRouter router = SpeechRouter(
       system: SystemSpeechOutput(bridge: ref.watch(platformBridgeProvider)),
-      sherpa: SherpaSpeechOutput(
+      onDevice: OnDeviceSpeechOutput(
         // Read, not watched, and inside a closure: the optional voice resolves
         // the model directory only when it is asked to speak, so an app without
         // one still talks through the phone's engine.

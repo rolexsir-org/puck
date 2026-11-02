@@ -91,7 +91,7 @@ class VoiceSessionController extends ChangeNotifier {
       _phase == VoicePhase.listening ||
       _phase == VoicePhase.transcribing;
 
-  /// Which engine answered: "sherpa-onnx moonshine-tiny-en" or the platform
+  /// Which engine answered: "on-device moonshine-tiny-en" or the platform
   /// recogniser. Shown in diagnostics, because "why is it using the network"
   /// deserves an answer.
   String get source => _transcriber.sourceLabel;
