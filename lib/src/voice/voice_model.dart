@@ -15,12 +15,11 @@
 ///
 /// # The numbers
 ///
-/// Every [bytes] value below was read from the publishing GitHub release's asset
-/// list on 2026-11-02 (`api.github.com/repos/k2-fsa/sherpa-onnx/releases/
-/// tags/asr-models`, `tags/tts-models`, and the keyword-spotting release), not
-/// estimated. They are used for two things: telling the user what the download
-/// costs, and checking that the bytes that arrived are the bytes that were
-/// meant to arrive.
+/// Every [bytes] value below was read from the publishing release's asset list
+/// on 2026-11-02 (the `asr-models`, `tts-models` and keyword-spotting releases),
+/// not estimated. They are used for two things: telling the user what the
+/// download costs, and checking that the bytes that arrived are the bytes that
+/// were meant to arrive.
 library;
 
 enum VoiceModelKind { vad, asr, tts }
@@ -62,7 +61,7 @@ class VoiceModel {
   final VoiceModelKind kind;
 
   /// Human-readable licence of the model weights, and where it is stated.
-  /// Separate from the library's licence: sherpa-onnx is Apache-2.0 and every
+  /// Separate from the library's licence: the engine is Apache-2.0 and every
   /// model has its own terms.
   final String license;
   final String licenseUrl;
@@ -226,8 +225,9 @@ abstract final class VoiceModels {
   /// wake-word work starts from a checked fact rather than a guess.
   ///
   /// It is an English Zipformer transducer trained on GigaSpeech, 17.6 MB, and
-  /// `sherpa_onnx` exposes it as `KeywordSpotter` with a `keywords.txt` file of
-  /// BPE-encoded phrases. See docs/voice.md §5 for why it is not wired up: a
+  /// the engine package exposes it as `KeywordSpotter` with a `keywords.txt`
+  /// file of BPE-encoded phrases. See docs/voice.md §5 for why it is not wired
+  /// up: a
   /// wake word is a foreground service and an always-on microphone, and that is
   /// a battery and trust decision, not a code one.
   static const String keywordSpotterModelId =

@@ -108,7 +108,7 @@ class PlatformBridge {
       await _invoke<bool>('tts.isSpeaking') ?? false;
 
   /// Play mono float samples through an `AudioTrack`. Used by the optional
-  /// sherpa-onnx voice; the system engine has its own path.
+  /// bundled voice; the system engine has its own path.
   Future<bool> playPcm(Float32List samples, int sampleRate) async {
     final bool? ok = await _invoke<bool>(
       'pcm.play',

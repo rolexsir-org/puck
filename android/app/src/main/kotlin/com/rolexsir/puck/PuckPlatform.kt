@@ -33,7 +33,7 @@ import java.util.concurrent.Executors
  *     clock app the phone has, never dialled in silently;
  *   * **speech** -- the platform `TextToSpeech` engine (offline on any phone
  *     with its language data installed);
- *   * **PCM playback** -- an `AudioTrack`, for the optional sherpa-onnx voice.
+ *   * **PCM playback** -- an `AudioTrack`, for the optional bundled voice.
  *
  * Every method answers `false`/`null` rather than throwing: a torch-less phone,
  * a phone with no clock app and a phone whose TTS engine is missing are all

@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:puck/src/data/services/platform_bridge.dart';
 import 'package:puck/src/voice/model_store.dart';
 import 'package:puck/src/voice/voice_model.dart';
-import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
+import 'package:sherpa_onnx/sherpa_onnx.dart' as onnx;
 
 /// Spoken answers.
 ///
@@ -16,9 +16,9 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 ///   * **The phone's own engine** (Android `TextToSpeech`). Already installed,
 ///     already offline for most languages, better sounding than anything Puck
 ///     could ship, and zero download. This is the default.
-///   * **sherpa-onnx TTS** (VITS, Piper voice). Self-contained: works on a phone
-///     whose speech engine is missing, silenced, or set to a language the user
-///     does not want. 67 MB, downloaded only if asked for.
+///   * **A bundled neural voice** (VITS, Piper). Self-contained: works on a
+///     phone whose speech engine is missing, silenced, or set to a language the
+///     user does not want. 67 MB, downloaded only if asked for.
 ///
 /// [SpeechRouter] uses the second when it is installed and the first otherwise,
 /// and never silently downloads anything.
@@ -72,13 +72,13 @@ class SystemSpeechOutput implements SpeechOutput {
   }
 }
 
-/// sherpa-onnx VITS, generated on the phone and played through `AudioTrack`.
+/// A bundled VITS voice, generated on the phone and played through `AudioTrack`.
 ///
 /// Synthesis runs in its own isolate, exactly like recognition: a 67 MB VITS
 /// model takes a few hundred milliseconds per sentence, and on the UI isolate
 /// that is a visible freeze just as the answer appears.
-class SherpaSpeechOutput implements SpeechOutput {
-  SherpaSpeechOutput({
+class OnDeviceSpeechOutput implements SpeechOutput {
+  OnDeviceSpeechOutput({
     required VoiceModelStore Function() store,
     this.model = VoiceModels.piperAmyLow,
     PlatformBridge? bridge,
@@ -112,7 +112,7 @@ class SherpaSpeechOutput implements SpeechOutput {
   bool _starting = false;
 
   @override
-  String get sourceLabel => 'sherpa-onnx ${model.id}';
+  String get sourceLabel => 'bundled voice (${model.id})';
 
   @override
   Future<bool> isAvailable() async {
@@ -218,10 +218,10 @@ class SherpaSpeechOutput implements SpeechOutput {
 /// Chooses at speak time, so installing or deleting the Puck voice takes effect
 /// without restarting the app.
 class SpeechRouter implements SpeechOutput {
-  SpeechRouter({required this.system, required this.sherpa});
+  SpeechRouter({required this.system, required this.onDevice});
 
   final SystemSpeechOutput system;
-  final SherpaSpeechOutput sherpa;
+  final OnDeviceSpeechOutput onDevice;
 
   SpeechOutput? _last;
 
@@ -230,15 +230,15 @@ class SpeechRouter implements SpeechOutput {
 
   @override
   Future<bool> isAvailable() async =>
-      await sherpa.isAvailable() || await system.isAvailable();
+      await onDevice.isAvailable() || await system.isAvailable();
 
   @override
   Future<void> speak(String text) async {
-    if (await sherpa.isAvailable()) {
-      _last = sherpa;
+    if (await onDevice.isAvailable()) {
+      _last = onDevice;
       // A refused synthesis must not become silence: the phone's own engine is
       // one call away and always there.
-      if (await sherpa.speakChecked(text)) return;
+      if (await onDevice.speakChecked(text)) return;
     }
     _last = system;
     await system.speak(text);
@@ -246,13 +246,13 @@ class SpeechRouter implements SpeechOutput {
 
   @override
   Future<void> stop() async {
-    await sherpa.stop();
+    await onDevice.stop();
     await system.stop();
   }
 
   @override
   void dispose() {
-    sherpa.dispose();
+    onDevice.dispose();
     system.dispose();
   }
 }
@@ -317,12 +317,12 @@ class _EnginePortFailure {
 
 Future<void> _ttsEntry(_TtsInit init) async {
   try {
-    await sherpa_onnx.initBindingsAsync();
+    await onnx.initBindingsAsync();
 
-    final sherpa_onnx.OfflineTts tts = sherpa_onnx.OfflineTts(
-      sherpa_onnx.OfflineTtsConfig(
-        model: sherpa_onnx.OfflineTtsModelConfig(
-          vits: sherpa_onnx.OfflineTtsVitsModelConfig(
+    final onnx.OfflineTts tts = onnx.OfflineTts(
+      onnx.OfflineTtsConfig(
+        model: onnx.OfflineTtsModelConfig(
+          vits: onnx.OfflineTtsVitsModelConfig(
             model: init.modelPath,
             tokens: init.tokensPath,
             // The lexicon frontend instead of the phonemiser: one extra 6.3 MB
@@ -348,7 +348,7 @@ Future<void> _ttsEntry(_TtsInit init) async {
       }
       if (message is! _TtsSpeak) return;
       try {
-        final sherpa_onnx.GeneratedAudio audio =
+        final onnx.GeneratedAudio audio =
             tts.generate(text: message.text, speed: 1.0);
         init.uiPort.send(_TtsAudio(audio.samples, audio.sampleRate));
       } on Object catch (error) {

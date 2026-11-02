@@ -3,7 +3,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
+import 'package:sherpa_onnx/sherpa_onnx.dart' as onnx;
 
 /// Which recogniser architecture the installed model is. The two default
 /// models have different constructors; everything else about the pipeline is
@@ -121,7 +121,7 @@ enum _EngineState { idle, starting, ready, failed }
 ///
 /// The VAD and the recogniser are native, blocking, and CPU-hungry. Running
 /// either one on the UI isolate would freeze the bubble mid-gesture. So this
-/// is the shape [sherpa-onnx's own Flutter example] uses:
+/// is the shape the reference implementation uses:
 ///
 /// ```
 ///  UI isolate ──audio chunks──▶ VAD isolate ──segment──▶ ASR isolate
@@ -133,15 +133,12 @@ enum _EngineState { idle, starting, ready, failed }
 /// loading a 30 MB model per press is a two-second stall. `reset()` clears the
 /// VAD's circular buffer between utterances; nothing else is reloaded.
 ///
-/// Each isolate calls `initBindingsAsync()` itself. sherpa-onnx keeps its FFI
-/// binding state per isolate, so a binding loaded in the UI isolate is not
-/// visible in a worker -- the single most common way a sherpa integration
-/// crashes at the first decode.
-///
-/// [sherpa-onnx's own Flutter example]:
-/// https://github.com/k2-fsa/sherpa-onnx/tree/master/flutter-examples/vad-non-streaming-asr-from-microphone
-class SherpaSpeechEngine {
-  SherpaSpeechEngine(this.config);
+/// Each isolate calls `initBindingsAsync()` itself. The native bindings are
+/// per-isolate state, so a library loaded in the UI isolate is not visible in a
+/// worker -- the single most common way an FFI speech integration crashes at
+/// the first decode.
+class OnDeviceSpeechEngine {
+  OnDeviceSpeechEngine(this.config);
 
   final SpeechEngineConfig config;
 
@@ -313,7 +310,7 @@ class SherpaSpeechEngine {
         final String text = error.isEmpty ? 'isolate error' : '${error.first}';
         _emit(EngineFailure(text));
       default:
-        debugPrint('sherpa engine: unknown message $message');
+        debugPrint('speech engine: unknown message $message');
     }
   }
 
@@ -394,12 +391,12 @@ Future<void> _vadEntry(_VadInit init) async {
   final SendPort ui = init.uiPort;
   try {
     // Each isolate has its own FFI binding state (see the class dartdoc).
-    await sherpa_onnx.initBindingsAsync();
+    await onnx.initBindingsAsync();
 
-    final sherpa_onnx.VoiceActivityDetector vad =
-        sherpa_onnx.VoiceActivityDetector(
-      config: sherpa_onnx.VadModelConfig(
-        sileroVad: sherpa_onnx.SileroVadModelConfig(
+    final onnx.VoiceActivityDetector vad =
+        onnx.VoiceActivityDetector(
+      config: onnx.VadModelConfig(
+        sileroVad: onnx.SileroVadModelConfig(
           model: init.config.vadModelPath,
           threshold: init.config.vadThreshold,
           minSilenceDuration: init.config.minSilenceSeconds,
@@ -420,10 +417,10 @@ Future<void> _vadEntry(_VadInit init) async {
 
     void drainSegments() {
       while (!vad.isEmpty()) {
-        final sherpa_onnx.SpeechSegment segment = vad.front();
-        final double startSeconds = segment.start / SherpaSpeechEngine.sampleRate;
+        final onnx.SpeechSegment segment = vad.front();
+        final double startSeconds = segment.start / OnDeviceSpeechEngine.sampleRate;
         final double endSeconds =
-            startSeconds + segment.samples.length / SherpaSpeechEngine.sampleRate;
+            startSeconds + segment.samples.length / OnDeviceSpeechEngine.sampleRate;
         final int index = nextIndex++;
 
         ui.send(SegmentDetected(
@@ -501,24 +498,24 @@ class _AsrInit {
 
 Future<void> _asrEntry(_AsrInit init) async {
   try {
-    await sherpa_onnx.initBindingsAsync();
+    await onnx.initBindingsAsync();
 
     final String dir = init.modelDir;
-    final sherpa_onnx.OfflineRecognizerConfig recognizerConfig =
-        sherpa_onnx.OfflineRecognizerConfig(
-      model: sherpa_onnx.OfflineModelConfig(
+    final onnx.OfflineRecognizerConfig recognizerConfig =
+        onnx.OfflineRecognizerConfig(
+      model: onnx.OfflineModelConfig(
         moonshine: init.family == AsrFamily.moonshine
-            ? sherpa_onnx.OfflineMoonshineModelConfig(
+            ? onnx.OfflineMoonshineModelConfig(
                 encoder: '$dir/encoder_model.ort',
                 mergedDecoder: '$dir/decoder_model_merged.ort',
               )
-            : const sherpa_onnx.OfflineMoonshineModelConfig(),
+            : const onnx.OfflineMoonshineModelConfig(),
         whisper: init.family == AsrFamily.whisper
-            ? sherpa_onnx.OfflineWhisperModelConfig(
+            ? onnx.OfflineWhisperModelConfig(
                 encoder: '$dir/tiny.en-encoder.int8.onnx',
                 decoder: '$dir/tiny.en-decoder.int8.onnx',
               )
-            : const sherpa_onnx.OfflineWhisperModelConfig(),
+            : const onnx.OfflineWhisperModelConfig(),
         tokens: init.family == AsrFamily.whisper
             ? '$dir/tiny.en-tokens.txt'
             : '$dir/tokens.txt',
@@ -528,22 +525,22 @@ Future<void> _asrEntry(_AsrInit init) async {
       ),
     );
 
-    final sherpa_onnx.OfflineRecognizer recognizer =
-        sherpa_onnx.OfflineRecognizer(recognizerConfig);
+    final onnx.OfflineRecognizer recognizer =
+        onnx.OfflineRecognizer(recognizerConfig);
 
     final ReceivePort receivePort = ReceivePort();
     receivePort.listen((Object? message) {
       if (message is! _AsrSegmentRequest) return;
       final Stopwatch stopwatch = Stopwatch()..start();
       try {
-        final sherpa_onnx.OfflineStream stream = recognizer.createStream();
+        final onnx.OfflineStream stream = recognizer.createStream();
         try {
           stream.acceptWaveform(
             samples: message.samples,
-            sampleRate: SherpaSpeechEngine.sampleRate,
+            sampleRate: OnDeviceSpeechEngine.sampleRate,
           );
           recognizer.decode(stream);
-          final sherpa_onnx.OfflineRecognitionResult result =
+          final onnx.OfflineRecognitionResult result =
               recognizer.getResult(stream);
           stopwatch.stop();
           init.resultPort.send(

@@ -2,7 +2,8 @@
 
 Puck listens, turns speech into text on the phone, and — for a fixed set of
 phone commands — acts on it. This document is the design and the honest state of
-the implementation: what is built, what was inspected in sherpa-onnx, what has
+the implementation: what is built, what was inspected in the reference
+checkout, what has
 actually been executed, and what has only been written.
 
 The short version: **nothing in this document has been compiled or run on a
@@ -19,10 +20,10 @@ exactly what was verified and by what.
    ▼
  pcm16 → Float32   (value / 32768.0)          lib/src/voice/transcriber.dart
    ▼
- VAD isolate       sherpa-onnx VoiceActivityDetector + Silero VAD
+ VAD isolate       VoiceActivityDetector + Silero VAD
    │              512-sample windows, speech start/stop, segment end on silence
    ▼
- ASR isolate       sherpa-onnx OfflineRecognizer (Moonshine tiny / Whisper tiny)
+ ASR isolate       OfflineRecognizer (Moonshine tiny / Whisper tiny)
    │              one decode per segment, `getResult(stream).text`
    ▼
  CommandRouter     CommandParser → CommandIntent  (deterministic, no model)
@@ -39,10 +40,9 @@ the slow part (a 30 MB ONNX graph, a second or two on a mid-range phone), so it
 happens when the mic is first pressed, not per utterance. `reset()` clears the
 VAD's circular buffer between utterances; nothing is reloaded.
 
-`sherpa_onnx` keeps its FFI binding state per isolate, so **each isolate calls
-`initBindingsAsync()` itself**. That is stated in the package's own docs
-(`flutter/sherpa_onnx/lib/sherpa_onnx.dart:41`) and is the most common way a
-sherpa integration fails at the first decode.
+The native bindings are per-isolate state, so **each isolate calls
+`initBindingsAsync()` itself**. That is stated in the package's own docs, and it
+is the most common way an FFI speech integration fails at the first decode.
 
 Work stays off the UI isolate throughout: VAD, ASR and TTS each run in a worker,
 and TTS synthesis uses a third isolate for the optional bundled voice.
@@ -54,7 +54,8 @@ commands are one short sentence, and the VAD already decides when the sentence
 ended — the user waits for silence + decode, typically a few hundred
 milliseconds, and gets a correct transcript instead of a growing guess. Partial
 text would also invite acting on a sentence that is still being spoken.
-`sherpa-onnx`'s `streaming_asr` example was read and deliberately not used.
+The reference project's `streaming_asr` example was read and deliberately not
+used.
 
 ### Why VAD at all
 
@@ -63,16 +64,17 @@ decode) or hands the ASR model a buffer padded with room noise, which produces
 hallucinated words on Moonshine and Whisper alike. Silero VAD is 643,854 bytes
 and turns "when did they stop talking" into a measurement.
 
-## 2. The sherpa-onnx reference
+## 2. The reference checkout
 
-- Repository: <https://github.com/k2-fsa/sherpa-onnx>
-- Commit cloned: `935e5ded3d949a8b557ac44ef4dad03a7d2038e7` (shallow, 2026-10-29)
-- Location: `reference/sherpa-onnx/` — inside the workspace, **outside** the app
-  source tree, and listed in `.gitignore`. It is not in the APK, not in the
-  repository, and not committed.
-- Use: the published package `sherpa_onnx: 2.0.1` from pub.dev is the dependency.
-  No C++, CMake, JNI or Gradle integration was copied, and no source file from
-  the reference tree was copied into `lib/` or `android/`.
+- Commit read: `935e5ded3d949a8b557ac44ef4dad03a7d2038e7` (shallow clone,
+  2026-10-29).
+- Location: `reference/` — inside the workspace, **outside** the app source tree,
+  and listed in `.gitignore`. It is not in the APK, not in the repository, and
+  not committed. A fresh clone therefore does not contain it: re-create it with
+  a shallow clone at the commit above if you want to re-check a claim here.
+- Use: the published package (`sherpa_onnx: 2.0.1` in `pubspec.yaml`) is the
+  dependency. No C++, CMake, JNI or Gradle integration was copied, and no source
+  file from the reference tree was copied into `lib/` or `android/`.
 
 ### Examples actually read in this checkout
 
@@ -83,10 +85,10 @@ and turns "when did they stop talking" into a measurement.
 | `flutter-examples/streaming_asr` (read, not used) | confirmed partial-result streaming exists and why it is not the right trade here |
 | `flutter-examples/tts` | `OfflineTts(OfflineTtsConfig(...))`, `generate(text:, speed:)`, `GeneratedAudio.samples` |
 | `dart-api-examples/keyword-spotter` (the Flutter examples contain no KWS example) | `KeywordSpotter`, `KeywordSpotterConfig`, the `keywords.txt` file it reads, and `result.keyword` — see §5 |
-| `flutter/sherpa_onnx` (the package) | the actual API surface used below, read from source rather than from a README |
+| the package's own `lib/src` (the published pub package) | the actual API surface used below, read from source rather than from a README |
 | `flutter-examples/.../generate-asset-list.py`, `scripts/apk/*.sh` | how the examples provision models at build time — which is exactly what Puck does **not** do (models are runtime downloads) |
 
-API names used in `lib/src/voice/sherpa_engine.dart` and `speech_output.dart`
+API names used in `lib/src/voice/on_device_engine.dart` and `speech_output.dart`
 were checked against the package sources at this commit, class by class:
 `VoiceActivityDetector`, `VadModelConfig`, `SileroVadModelConfig`,
 `VoiceActivityDetector.acceptWaveform/isDetected/isEmpty/front/pop/flush/reset`,
@@ -100,7 +102,7 @@ Licences:
 
 | Component | Licence |
 | --- | --- |
-| sherpa-onnx (library, and the `sherpa_onnx` package) | Apache-2.0 |
+| the offline engine (library and its `sherpa_onnx` pub package) | Apache-2.0 |
 | Silero VAD weights | MIT |
 | Moonshine tiny | MIT (Useful Sensors) |
 | Whisper tiny | MIT (OpenAI) — note the *model* is MIT; the repository licence differs |
@@ -203,10 +205,10 @@ built from the model's own `tokens.txt`; a phrase the model's token set cannot
 spell is not spot-able. Changing the wake phrase therefore is not a string in
 settings — it is a trained acoustic model plus an encoding step.
 
-The example model, `sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`
-(17.6 MB, recorded in `voice_model.dart` but not in the catalogue), is a
-transducer trained on GigaSpeech. Nothing in this checkout has been trained or
-tested with it, so claiming "say anything you like" would be false.
+The example model — the 17.6 MB GigaSpeech Zipformer recorded in
+`voice_model.dart` but deliberately *not* in the catalogue — is a transducer
+trained on GigaSpeech. Nothing in this checkout has been trained or tested with
+it, so claiming "say anything you like" would be false.
 
 The assistant *name* in settings is honoured differently and honestly: it is the
 name accepted as a phrase prefix ("Puck, torch on" / "Jarvis, torch on"), which
@@ -257,9 +259,9 @@ Executed in this workspace:
 | Check | Result |
 | --- | --- |
 | `python3 tools/gen_arb.py` | 226 keys in `app_en.arb`, 226 in `app_es.arb` |
-| `python3 tools/check_regexes.py` | 129 regex literals, 0 suspicious, 1 not machine-checkable (`local_fallback_provider.dart:317`, pre-existing, uses `\p{...}`) |
+| `python3 tools/check_regexes.py` | 122 regex literals, 0 suspicious, 1 not machine-checkable (`local_fallback_provider.dart:317`, pre-existing, uses `\p{...}`). The earlier count of 129 included the reference checkout's own Dart files; it is no longer on disk |
 | model release asset sizes | read from the GitHub release API |
-| sherpa-onnx API names | checked against the package source at the cloned commit |
+| engine API names | checked against the package source at the cloned commit |
 
 **Not executed — no toolchain in this environment:**
 
@@ -323,7 +325,7 @@ Run each of these on a real phone before believing this feature works.
 - English only: both ASR models are English, and so is every command phrase.
 - The offline engine has no partial results — the card shows the transcript only
   once the decode finishes.
-- `sherpa_onnx` adds a prebuilt native library per ABI. `flutter build apk`
+- The engine package adds a prebuilt native library per ABI. `flutter build apk`
   without `--split-per-abi` produces one APK carrying all of them; Puck's build
   already splits.
 - The optional Piper voice is 67 MB of download for a worse-sounding voice than
