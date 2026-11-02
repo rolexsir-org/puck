@@ -63,18 +63,21 @@ abstract final class PuckFormat {
     return '±${metres.round()}m';
   }
 
+  static const List<String> _days = <String>[
+    'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', //
+  ];
+  static const List<String> _months = <String>[
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
   /// "3:14 PM · Wed Jan 15"
-  static String stamp(DateTime t) {
-    const List<String> days = <String>[
-      'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', //
-    ];
-    const List<String> months = <String>[
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${clock(t)} · ${days[t.weekday - 1]} '
-        '${months[t.month - 1]} ${t.day}';
-  }
+  static String stamp(DateTime t) =>
+      '${clock(t)} · ${dayDate(t)}';
+
+  /// "Wed Jan 15" -- the date without the time, for "what is the date".
+  static String dayDate(DateTime t) =>
+      '${_days[t.weekday - 1]} ${_months[t.month - 1]} ${t.day}';
 
   static double clamp(double v, double lo, double hi) {
     return math.min(hi, math.max(lo, v));

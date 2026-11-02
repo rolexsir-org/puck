@@ -7,6 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:puck/app.dart';
 import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/providers.dart';
+import 'package:puck/src/voice/model_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
@@ -29,10 +30,17 @@ Future<void> main() async {
   // is synchronous.
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
+  // The voice-model directory. Resolved here rather than lazily because the
+  // settings screen reads it on first paint and a FutureBuilder in front of a
+  // download button is a worse experience than one extra millisecond at
+  // launch. Creating the directory is idempotent and touches no model.
+  final VoiceModelStore voiceModels = await VoiceModelStore.open();
+
   runApp(
     ProviderScope(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(prefs),
+        voiceModelStoreProvider.overrideWithValue(voiceModels),
       ],
       child: const PuckApp(),
     ),

@@ -28,6 +28,8 @@ class SettingsRepository extends ChangeNotifier {
   static const String _kJokeOrder = 'fun.joke.order';
   static const String _kReleaseCancels = 'sos.release.cancels';
   static const String _kSosHoldSeconds = 'sos.hold.seconds';
+  static const String _kAssistantName = 'voice.assistant.name';
+  static const String _kSpokenReplies = 'voice.spoken.replies';
 
   // -- Hold length ----------------------------------------------------------
 
@@ -55,6 +57,54 @@ class SettingsRepository extends ChangeNotifier {
       _kSosHoldSeconds,
       seconds.clamp(minSosHoldSeconds, maxSosHoldSeconds),
     );
+    notifyListeners();
+  }
+
+  // -- Voice ----------------------------------------------------------------
+
+  /// What the assistant calls itself, and the phrase prefix it will strip from
+  /// an utterance ("hey <name>, torch on").
+  ///
+  /// It is a *display and parsing* name, not an acoustic model. Changing it
+  /// changes what the card says and which prefix the parser accepts; it does
+  /// not change what the microphone wakes on, because there is no always-on
+  /// wake word yet (docs/voice.md §5). Saying otherwise would be the single
+  /// most misleading thing this app could claim.
+  static const String defaultAssistantName = 'Puck';
+
+  /// Long enough for "Alexa", short enough to fit the settings field.
+  static const int maxAssistantNameLength = 20;
+
+  String get assistantName {
+    final String? stored = _prefs.getString(_kAssistantName);
+    final String trimmed = (stored ?? '').trim();
+    return trimmed.isEmpty ? defaultAssistantName : trimmed;
+  }
+
+  Future<void> setAssistantName(String name) async {
+    final String trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      await _prefs.remove(_kAssistantName);
+    } else {
+      await _prefs.setString(
+        _kAssistantName,
+        trimmed.length > maxAssistantNameLength
+            ? trimmed.substring(0, maxAssistantNameLength)
+            : trimmed,
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Whether answers are read out loud.
+  ///
+  /// On by default: this is a voice-first assistant, and an answer you asked for
+  /// with your voice that arrives only on screen is half an answer. Off is one
+  /// switch away for anyone who is in a meeting.
+  bool get spokenReplies => _prefs.getBool(_kSpokenReplies) ?? true;
+
+  Future<void> setSpokenReplies(bool enabled) async {
+    await _prefs.setBool(_kSpokenReplies, enabled);
     notifyListeners();
   }
 
@@ -197,7 +247,10 @@ class SettingsRepository extends ChangeNotifier {
   }
 
   /// Erases everything Puck stored on this device: the contact number, the
-  /// optional API key, the joke cursor, the counters and the device ID.
+  /// optional API key, the joke cursor, the counters, the device ID, the
+  /// assistant's name and the speech preference. The downloaded voice models are
+  /// deleted separately, from the voice models screen, because they are files
+  /// rather than preferences and a 30 MB delete deserves its own tap.
   /// Nothing is kept "just in case" -- a clear-data button that leaves
   /// something behind is a lie.
   Future<void> clearAllLocalData() async {
@@ -211,6 +264,8 @@ class SettingsRepository extends ChangeNotifier {
       _kGestureCardShown,
       _kHoldDiscovered,
       _kCloudEnabled,
+      _kAssistantName,
+      _kSpokenReplies,
     ];
     for (final String key in keys) {
       await _prefs.remove(key);

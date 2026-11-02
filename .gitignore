@@ -41,3 +41,9 @@ flutter_export_environment.sh
 **/*.jks
 **/*.keystore
 .env
+
+# Reference material -- read-only research clones, never part of the build.
+# sherpa-onnx is Apache-2.0 and is pulled in as the published `sherpa_onnx`
+# package, not vendored; this checkout exists so the integration can be read
+# against the real source. See docs/voice.md.
+/reference/
