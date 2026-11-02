@@ -5,10 +5,10 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/theme.dart';
-import 'package:puck/src/data/services/speech_service.dart';
 import 'package:puck/src/features/puck/puck_controller.dart';
 import 'package:puck/src/l10n/puck_strings.dart';
 import 'package:puck/src/providers.dart';
+import 'package:puck/src/voice/voice_session.dart';
 
 /// The swipe-up surface: a pill that rises from wherever the bubble was,
 /// grows to fit the answer, and closes on a swipe down or a tap outside.
@@ -41,7 +41,6 @@ class _IntentBarState extends ConsumerState<IntentBar>
     with SingleTickerProviderStateMixin {
   final TextEditingController _field = TextEditingController();
   final FocusNode _focus = FocusNode();
-  final ValueNotifier<bool> _listening = ValueNotifier<bool>(false);
 
   late final AnimationController _rise = AnimationController(
     vsync: this,
@@ -60,14 +59,14 @@ class _IntentBarState extends ConsumerState<IntentBar>
   bool _announcedComplete = false;
 
   /// Captured rather than read in `dispose()`: the provider container can be
-  /// gone by then, and a stale listener on a shared service is exactly the bug
-  /// being fixed below.
-  late final SpeechService _speech;
+  /// gone by then, and a stale reference here is exactly the bug this field
+  /// exists to avoid.
+  late final VoiceSessionController _voice;
 
   @override
   void initState() {
     super.initState();
-    _speech = ref.read(speechServiceProvider);
+    _voice = ref.read(voiceSessionProvider);
     // The bar appears because of a flick; the cursor is already in the field
     // before the keyboard finishes its own animation.
     _focus.requestFocus();
@@ -95,18 +94,14 @@ class _IntentBarState extends ConsumerState<IntentBar>
 
   @override
   void dispose() {
-    // The speech service outlives this widget (it is provided at app scope),
-    // so its callbacks have to be cut here or the next session's recogniser
-    // writes into a dead widget's TextEditingController.
-    _speech
-      ..onText = null
-      ..onDone = null
-      ..onError = null;
-    unawaited(_speech.cancel());
+    // The session controller outlives this widget (it is provided at app
+    // scope), so an in-flight capture has to be dropped here. Otherwise the
+    // microphone stays open after the bar is gone and the next transcript is
+    // delivered to a dead widget.
+    unawaited(_voice.cancel());
     _rise.dispose();
     _field.dispose();
     _focus.dispose();
-    _listening.dispose();
     super.dispose();
   }
 
@@ -135,47 +130,64 @@ class _IntentBarState extends ConsumerState<IntentBar>
     final String query = _field.text.trim();
     if (query.isEmpty) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    await _stopListening();
+    if (_voice.isActive) await _voice.cancel();
     widget.controller.submitQuery(query);
   }
 
+  /// Press to talk. Press again to end the utterance early.
+  ///
+  /// The transcript goes into the field and *then* through the ordinary submit
+  /// path, which means a spoken command and a typed one are the same command
+  /// through the same parser. Nothing here executes anything.
   Future<void> _toggleMic() async {
-    final SpeechService speech = _speech;
+    final VoiceSessionController voice = _voice;
 
-    if (_listening.value) {
-      await _stopListening();
+    if (voice.isActive) {
+      await voice.stopListening();
       return;
     }
 
-    final bool ok = await speech.init();
-    if (!ok || !mounted) return;
-
-    speech
-      ..onText = (String text, bool partial) {
-        _field.text = text;
-        _field.selection = TextSelection.collapsed(offset: text.length);
-      }
-      ..onDone = () {
-        if (mounted) _listening.value = false;
-      }
-      ..onError = (String _) {
-        if (mounted) _listening.value = false;
-      };
-
-    final bool started = await speech.start();
+    voice.acknowledge();
+    final String? text = await voice.listen();
     if (!mounted) return;
-    _listening.value = started;
+    if (text == null || text.trim().isEmpty) return;
+
+    _field.text = text;
+    _field.selection = TextSelection.collapsed(offset: text.length);
+    await _submit();
   }
 
-  Future<void> _stopListening() async {
-    _listening.value = false;
-    await _speech.stop();
+  /// The one line under the pill that says what the microphone is doing.
+  ///
+  /// Every state a session can be in gets a sentence, including the failures:
+  /// a press that produces silence and no explanation reads as a broken button.
+  String? _voiceStatus(PuckStrings s, VoiceSessionController voice) {
+    switch (voice.phase) {
+      case VoicePhase.idle:
+        return null;
+      case VoicePhase.preparing:
+        return s.voicePreparing;
+      case VoicePhase.listening:
+        return s.voiceListeningHint;
+      case VoicePhase.transcribing:
+        return s.voiceTranscribing;
+      case VoicePhase.failed:
+        return switch (voice.problem) {
+          VoiceProblem.permissionDenied => s.voicePermissionDenied,
+          VoiceProblem.needsModels => s.voiceNoModels,
+          VoiceProblem.silent => s.voiceHeardNothing,
+          VoiceProblem.busy => s.voiceBusy,
+          _ => s.voiceError,
+        };
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final IntentView? intent = widget.controller.intent;
     final PuckStrings s = PuckStrings.of(context);
+    final VoiceSessionController voice = ref.watch(voiceSessionProvider);
+    final String? voiceStatus = _voiceStatus(s, voice);
     _announceIfComplete(intent);
 
     // The keyboard is handled by the Scaffold's resize, which animates in
@@ -215,6 +227,22 @@ class _IntentBarState extends ConsumerState<IntentBar>
                         ),
                       ),
               ),
+              if (voiceStatus != null)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: PuckConstants.screenMargin,
+                    right: PuckConstants.screenMargin,
+                    bottom: 8,
+                  ),
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      voiceStatus,
+                      textAlign: TextAlign.center,
+                      style: PuckType.label,
+                    ),
+                  ),
+                ),
               AnimatedBuilder(
                 animation: _rise,
                 builder: (BuildContext context, Widget? child) {
@@ -234,7 +262,7 @@ class _IntentBarState extends ConsumerState<IntentBar>
                 child: _InputRow(
                   controller: _field,
                   focusNode: _focus,
-                  listening: _listening,
+                  listening: voice.isActive,
                   onSubmit: _submit,
                   onMic: _toggleMic,
                   strings: s,
@@ -385,7 +413,7 @@ class _InputRow extends StatelessWidget {
 
   final TextEditingController controller;
   final FocusNode focusNode;
-  final ValueNotifier<bool> listening;
+  final bool listening;
   final Future<void> Function() onSubmit;
   final Future<void> Function() onMic;
   final PuckStrings strings;
@@ -435,29 +463,24 @@ class _InputRow extends StatelessWidget {
                   ),
                 ),
               ),
-              ValueListenableBuilder<bool>(
-                valueListenable: listening,
-                builder: (BuildContext context, bool active, Widget? _) {
-                  if (hasText) {
-                    return _RoundButton(
-                      icon: Icons.arrow_upward_rounded,
-                      filled: true,
-                      label: strings.sendAnswer,
-                      onTap: () => unawaited(onSubmit()),
-                    );
-                  }
-                  return _RoundButton(
-                    icon: active ? Icons.stop_rounded : Icons.mic_none_rounded,
-                    active: active,
-                    // The toggled state is part of the label, not just the
-                    // colour of the button: a screen reader announces "Stop
-                    // listening" while the mic is live.
-                    label: active ? strings.micStop : strings.micStart,
-                    toggled: active,
-                    onTap: () => unawaited(onMic()),
-                  );
-                },
-              ),
+              if (hasText)
+                _RoundButton(
+                  icon: Icons.arrow_upward_rounded,
+                  filled: true,
+                  label: strings.sendAnswer,
+                  onTap: () => unawaited(onSubmit()),
+                )
+              else
+                _RoundButton(
+                  icon: listening ? Icons.stop_rounded : Icons.mic_none_rounded,
+                  active: listening,
+                  // The toggled state is part of the label, not just the colour
+                  // of the button: a screen reader announces "Stop listening"
+                  // while the mic is live.
+                  label: listening ? strings.micStop : strings.micStart,
+                  toggled: listening,
+                  onTap: () => unawaited(onMic()),
+                ),
             ],
           ),
         );

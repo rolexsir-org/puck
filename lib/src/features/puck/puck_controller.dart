@@ -4,6 +4,9 @@ import 'dart:ui' show Locale;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:puck/src/commands/command_narrator.dart';
+import 'package:puck/src/commands/command_outcome.dart';
+import 'package:puck/src/commands/command_router.dart';
 import 'package:puck/src/core/constants.dart';
 import 'package:puck/src/core/format.dart';
 import 'package:puck/src/core/haptics.dart';
@@ -21,6 +24,7 @@ import 'package:puck/src/features/puck/puck_gesture_recognizer.dart';
 import 'package:puck/src/features/puck/spring_offset.dart';
 import 'package:puck/src/l10n/puck_strings.dart';
 import 'package:puck/src/providers.dart';
+import 'package:puck/src/voice/speech_output.dart';
 
 /// Which transient surface, if any, is currently on screen.
 ///
@@ -766,9 +770,15 @@ class PuckController extends ChangeNotifier {
   void closeIntentBar() {
     _intentSub?.cancel();
     _intentSub = null;
+    // Superseding the generation also silences a command that is still
+    // executing: its answer must not appear after the bar it belonged to.
+    _intentGeneration++;
     _intentBarOpen = false;
     _intent = null;
     _cancelDismiss();
+    // Closing the bar stops the voice. An answer that keeps talking after you
+    // dismissed it is the worst kind of assistant.
+    unawaited(_read<SpeechOutput>(speechOutputProvider).stop());
     notifyListeners();
   }
 
@@ -778,32 +788,92 @@ class PuckController extends ChangeNotifier {
 
     unawaited(_read<HapticsService>(hapticsProvider).tick());
 
+    // Every submit supersedes the last one. The generation counter is what
+    // stops a slow command (an app launch, a model decode) from painting its
+    // answer over a question the user already replaced.
+    final int generation = ++_intentGeneration;
+
     _intent = IntentView(query: query, answer: '', streaming: true);
     _cancelDismiss();
     notifyListeners();
+
+    unawaited(_routeQuery(query, generation));
+  }
+
+  int _intentGeneration = 0;
+
+  /// Commands first, the answer path second.
+  ///
+  /// The order is the whole design of this feature. "Turn the torch on" is a
+  /// device action with one correct meaning and it must work with the radio
+  /// off; only when the parser says "that is not one of my commands" does the
+  /// sentence become a question. Note what does *not* happen: no language model
+  /// ever sees a sentence and then decides to change the phone's volume.
+  Future<void> _routeQuery(String query, int generation) async {
+    final CommandDispatch? dispatch =
+        await _read<CommandRouter>(commandRouterProvider).route(query);
+    if (!hasListeners || generation != _intentGeneration) return;
+
+    switch (dispatch) {
+      case CommandHandled(:final CommandOutcome outcome):
+        final Narration narration =
+            CommandNarrator(strings).narrate(outcome);
+        if (narration.dismiss) {
+          closeIntentBar();
+          return;
+        }
+        _intentSub?.cancel();
+        _intentSub = null;
+        _intent = IntentView(
+          query: query,
+          answer: narration.display,
+          streaming: false,
+        );
+        notifyListeners();
+        _scheduleDismiss(PuckConstants.answerDismiss);
+        _speak(narration.spoken);
+        return;
+      case CommandDuplicate():
+        // The same utterance arrived twice; the first one already ran. Say
+        // nothing, change nothing.
+        return;
+      case null:
+        break;
+    }
 
     _intentSub?.cancel();
     _intentSub = _read<IntentRouter>(intentRouterProvider)
         .resolve(query)
         .listen(
       (String token) {
-        if (_intent == null) return;
+        if (_intent == null || generation != _intentGeneration) return;
         _intent = _intent!.copyWith(answer: _intent!.answer + token);
         notifyListeners();
       },
       onError: (Object error) {
-        if (_intent == null) return;
+        if (_intent == null || generation != _intentGeneration) return;
         _intent = _intent!.copyWith(streaming: false, failed: true);
         _scheduleDismiss(const Duration(seconds: 6));
         notifyListeners();
       },
       onDone: () {
-        if (_intent == null) return;
+        if (_intent == null || generation != _intentGeneration) return;
         _intent = _intent!.copyWith(streaming: false);
         notifyListeners();
         _scheduleDismiss(PuckConstants.answerDismiss);
       },
     );
+  }
+
+  /// Says [text] if the user wants answers spoken.
+  ///
+  /// Deliberately fire-and-forget: a TTS engine that takes 300ms to start must
+  /// not delay the card, which is already on screen by the time this runs.
+  void _speak(String text) {
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    if (!_read<SettingsRepository>(settingsProvider).spokenReplies) return;
+    unawaited(_read<SpeechOutput>(speechOutputProvider).speak(trimmed));
   }
 
   /// Bails out of an in-flight generation without closing the bar.

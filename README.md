@@ -42,6 +42,29 @@ The model can only ever *sharpen* a line the device already chose; it is never a
 
 Cost is bounded on the device rather than by hope: a polish is skipped when the local line is already shorter than the model's budget, at most one request is made per 20 seconds, and the polish of a given line is reused from a bounded cache for 10 minutes. The tap is the gesture people make dozens of times a day.
 
+## Voice
+
+Puck answers to a voice, and it does the phone commands itself. Tap the mic,
+speak, and the sentence is recognised **on the device** (`sherpa_onnx` with
+Silero VAD and Moonshine tiny) and then offered to a hand-written parser: volume,
+torch, opening apps, battery, time and date, arithmetic and unit conversion,
+timers and alarms. If the parser says the sentence is not a command, it goes to
+the ordinary answer path — the model is never in the loop for changing your
+phone's volume, and there is no path from a transcript to an arbitrary action.
+
+What it refuses is as deliberate as what it does: sending a message, placing a
+call, deleting anything or sharing your location are recognised and declined with
+a spoken reason. The models are downloaded on demand (0.6 MB + 29.9 MB) from
+Settings → Voice models, never bundled and never fetched silently; the phone's
+own speech engine reads answers unless you install Puck's voice. There is no
+wake word yet, and the settings screen says why instead of offering a switch that
+does nothing.
+
+`docs/voice.md` has the pipeline, the licences, the exact command surface with
+the Android API and permission behind each one, and the physical-device checklist
+— which has **not** been run, along with `flutter analyze`, `flutter test` and
+`flutter build` (no Flutter or Android SDK was available where this was written).
+
 ## Architecture
 
 ```
@@ -56,6 +79,8 @@ lib/
     │   ├── repositories/        settings (secure key storage), jokes (shuffle bag), context (parallel gather)
     │   └── llm/                 Groq SSE client, cloud gate, hardened prompt, deterministic local resolver
     ├── domain/                  context ranker (the priority list), intent router (device vs cloud), safety (crisis line)
+    ├── commands/                the deterministic command layer: parser, intents, executor, router, narrator
+    ├── voice/                   offline engine (VAD + ASR isolates), mic transcriber, session state machine, spoken output
     ├── settings/, privacy/      the two screens behind the bubble
     └── (repo root) tools/       ARB generation;  worker/  the shared answer service
     └── features/
@@ -72,7 +97,7 @@ Motion is one spring (stiffness 400, damping ratio 0.63) and one easing curve (2
 
 ## Permissions
 
-Requested lazily, at the moment a gesture needs them, never at launch: calendar on first tap, location on first weather check or SOS, microphone on first mic press. Deny any of them and Puck degrades — it never nags, and it never breaks. The SOS SMS is handed to the native composer unsent; that extra tap is the feature that makes a pocket-SOS recoverable.
+Requested lazily, at the moment a gesture needs them, never at launch: calendar on first tap, location on first weather check or SOS, microphone on first mic press. Volume and timer/alarm commands add `MODIFY_AUDIO_SETTINGS` and `SET_ALARM` (both normal permissions, granted at install), plus `<queries>` entries so Android 11+ lets Puck see launcher apps and clock apps. Deny any of them and Puck degrades — it never nags, and it never breaks. The SOS SMS is handed to the native composer unsent; that extra tap is the feature that makes a pocket-SOS recoverable.
 
 ## Verification
 

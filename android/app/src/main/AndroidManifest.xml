@@ -37,6 +37,22 @@
     <!-- Swipe-up intent bar: the microphone button. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!--
+      Voice command: "volume up", "mute", "set the volume to 40".
+      MODIFY_AUDIO_SETTINGS is what allows changing the music stream. It is a
+      normal (install-time) permission -- there is nothing to ask for at
+      runtime, and refusing it would break a command the user just spoke.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!--
+      Voice command: "set an alarm for seven". The permission is what lets the
+      AlarmClock intent create the alarm without opening the clock app; without
+      it Android still offers the prefilled alarm, one tap away. It grants no
+      access to the user's existing alarms.
+    -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <!-- All optional: Puck degrades instead of refusing to install. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
@@ -45,10 +61,30 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
 
     <!--
-      Android 11+ package visibility: required so Puck can see that an SMS
-      app exists before deep-linking into it with a pre-filled body.
+      Android 11+ package visibility. Without these entries the queries return
+      nothing and the app reports "no app called that" on a phone that has it.
+
+      * sms/smsto: the SOS handoff (see MessagingService).
+      * MAIN/LAUNCHER: "open calculator" has to be able to *see* the launcher
+        activities it is choosing between.
+      * SET_ALARM / SET_TIMER: resolveActivity() is the only way to know
+        whether a clock app will take the intent before starting it.
+      * TTS_SERVICE: the system speech engine has to be visible to be spoken to.
     -->
     <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="sms" />

@@ -4,6 +4,7 @@ import 'package:puck/src/core/theme.dart';
 import 'package:puck/src/features/privacy/privacy_screen.dart';
 import 'package:puck/src/features/puck/puck_screen.dart';
 import 'package:puck/src/features/settings/settings_screen.dart';
+import 'package:puck/src/features/settings/voice_models_screen.dart';
 import 'package:puck/src/l10n/puck_strings.dart';
 
 class PuckApp extends StatelessWidget {
@@ -42,12 +43,13 @@ class PuckApp extends StatelessWidget {
         return const Locale('en');
       },
 
-      // No named-route generator: three screens, all statically known.
+      // No named-route generator: four screens, all statically known.
       initialRoute: '/',
       routes: <String, WidgetBuilder>{
         '/': (BuildContext context) => const PuckHome(),
         '/settings': (BuildContext context) => const SettingsScreen(),
         '/privacy': (BuildContext context) => const PrivacyScreen(),
+        '/voice': (BuildContext context) => const VoiceModelsScreen(),
       },
     );
   }

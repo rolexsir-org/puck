@@ -118,6 +118,13 @@ class PuckStrings {
     return DateFormat.jm(localeName).format(t);
   }
 
+  /// "Wed Jan 15" in en, "mié, 15 ene" in es -- the date with no time, which is
+  /// what "what is the date" asks for.
+  String dateLine(DateTime t) {
+    if (isEnglish) return PuckFormat.dayDate(t);
+    return DateFormat.MMMEd(localeName).format(t);
+  }
+
   /// "3:14 PM · Wed Jan 15" in en, "15:14 · mié, 15 ene" in es.
   String stamp(DateTime t) {
     if (isEnglish) return PuckFormat.stamp(t);
@@ -232,6 +239,135 @@ class PuckStrings {
   String get sendAnswer => text('sendAnswer');
   String get thinking => text('thinking');
   String get answerComplete => text('answerComplete');
+
+  // -- Voice (2026-11) -------------------------------------------------------
+  //
+  // The listening states and the model screen. These are labels and hints, not
+  // answers: nothing here is ever spoken by the TTS engine except through the
+  // command lines below, which is why they are separate.
+
+  String get voiceListening => text('voiceListening');
+  String get voiceTranscribing => text('voiceTranscribing');
+  String get voicePreparing => text('voicePreparing');
+  String get voiceTapToTalk => text('voiceTapToTalk');
+  String get voicePermissionDenied => text('voicePermissionDenied');
+  String get voicePermissionDeniedNote => text('voicePermissionDeniedNote');
+  String get voiceNoModels => text('voiceNoModels');
+  String voiceDownloadPrompt(String megabytes) =>
+      format('voiceDownloadPrompt', <String>[megabytes]);
+  String get voiceDownloading => text('voiceDownloading');
+  String get voiceDownloadFailed => text('voiceDownloadFailed');
+  String get voiceModelBroken => text('voiceModelBroken');
+  String get voiceHeardNothing => text('voiceHeardNothing');
+  String get voiceBusy => text('voiceBusy');
+  String get voiceListeningHint => text('voiceListeningHint');
+  String get voiceError => text('voiceError');
+  String get voiceSectionTitle => text('voiceSectionTitle');
+  String get voiceModelsTitle => text('voiceModelsTitle');
+  String get voiceModelsNote => text('voiceModelsNote');
+  String get voiceModelInstalled => text('voiceModelInstalled');
+  String get voiceModelDownload => text('voiceModelDownload');
+  String get voiceModelDelete => text('voiceModelDelete');
+  String get voiceModelLicense => text('voiceModelLicense');
+  String get voiceModelRequired => text('voiceModelRequired');
+  String get voiceModelOptional => text('voiceModelOptional');
+  String get voiceModelSizeNote => text('voiceModelSizeNote');
+  String voiceModelBytes(String megabytes) =>
+      format('voiceModelBytes', <String>[megabytes]);
+  String get assistantNameTitle => text('assistantNameTitle');
+  String get assistantNameHint => text('assistantNameHint');
+  String assistantNameNote(String name) =>
+      format('assistantNameNote', <String>[name]);
+  String get spokenRepliesTitle => text('spokenRepliesTitle');
+  String get spokenRepliesNote => text('spokenRepliesNote');
+  String get wakeWordTitle => text('wakeWordTitle');
+  String get wakeWordNote => text('wakeWordNote');
+
+  // -- What a command says back ---------------------------------------------
+  //
+  // One method per outcome shape rather than one per sentence: the card and the
+  // spoken line differ, and a translator should see both.
+
+  String cmdVolumeLevel(int percent) =>
+      format('cmdVolumeLevel', <String>['$percent']);
+  String get cmdVolumeUp => text('cmdVolumeUp');
+  String get cmdVolumeDown => text('cmdVolumeDown');
+  String get cmdMuted => text('cmdMuted');
+  String get cmdUnmuted => text('cmdUnmuted');
+  String get cmdVolumeUnavailable => text('cmdVolumeUnavailable');
+  String get cmdTorchOn => text('cmdTorchOn');
+  String get cmdTorchOff => text('cmdTorchOff');
+  String get cmdTorchUnavailable => text('cmdTorchUnavailable');
+  String cmdOpening(String label) => format('cmdOpening', <String>[label]);
+  String cmdAppNotFound(String name) =>
+      format('cmdAppNotFound', <String>[name]);
+  String cmdAppFailed(String label) => format('cmdAppFailed', <String>[label]);
+  String cmdBattery(int percent, bool charging) => format(
+        'cmdBattery',
+        <String>[
+          '$percent',
+          charging ? text('cmdBatteryCharging') : text('cmdBatteryNotCharging'),
+        ],
+      );
+  String get cmdBatteryUnavailable => text('cmdBatteryUnavailable');
+  String cmdTimeLine(DateTime t) => format('cmdTime', <String>[clock(t)]);
+  String cmdDateLine(DateTime t) => format('cmdDate', <String>[dateLine(t)]);
+  String cmdAnswerCard(String expression, String value) =>
+      format('cmdAnswerCard', <String>[expression, value]);
+  String cmdAnswerSpoken(String value) =>
+      format('cmdAnswerSpoken', <String>[value]);
+  String cmdConvertCard(String value, String from, String result, String to) =>
+      format('cmdConvertCard', <String>[value, from, result, to]);
+  String cmdConvertSpoken(String value, String from, String result, String to) =>
+      format('cmdConvertSpoken', <String>[value, from, result, to]);
+  String cmdConvertImpossible(String from, String to) =>
+      format('cmdConvertImpossible', <String>[from, to]);
+  String cmdTimerCard(String duration) =>
+      format('cmdTimerCard', <String>[duration]);
+  String cmdTimerSpoken(String duration) =>
+      format('cmdTimerSpoken', <String>[duration]);
+  String get cmdTimerUnavailable => text('cmdTimerUnavailable');
+  String cmdAlarmCard(String clock) => format('cmdAlarmCard', <String>[clock]);
+  String cmdAlarmSpoken(String clock) =>
+      format('cmdAlarmSpoken', <String>[clock]);
+  String get cmdAlarmUnavailable => text('cmdAlarmUnavailable');
+  String get cmdHelp => text('cmdHelp');
+  String get cmdRefusedCall => text('cmdRefusedCall');
+  String get cmdRefusedMessage => text('cmdRefusedMessage');
+  String get cmdRefusedDelete => text('cmdRefusedDelete');
+  String get cmdRefusedShare => text('cmdRefusedShare');
+  String get cmdFailed => text('cmdFailed');
+
+  /// "1 hour 5 minutes", for a timer and for anything else that has to be said
+  /// out loud. Zero-valued parts are dropped: nobody says "0 hours".
+  String spokenDuration(Duration d) {
+    final int total = d.inSeconds;
+    final int hours = total ~/ 3600;
+    final int minutes = (total % 3600) ~/ 60;
+    final int seconds = total % 60;
+    final List<String> parts = <String>[];
+    if (hours > 0) {
+      parts.add(
+        hours == 1 ? text('durHourOne') : format('durHours', <String>['$hours']),
+      );
+    }
+    if (minutes > 0) {
+      parts.add(
+        minutes == 1
+            ? text('durMinuteOne')
+            : format('durMinutes', <String>['$minutes']),
+      );
+    }
+    if (seconds > 0) {
+      parts.add(
+        seconds == 1
+            ? text('durSecondOne')
+            : format('durSeconds', <String>['$seconds']),
+      );
+    }
+    if (parts.isEmpty) return format('durSeconds', <String>['0']);
+    return parts.join(' ');
+  }
 
   // -- SOS ------------------------------------------------------------------
 
@@ -548,6 +684,82 @@ class PuckStrings {
         'number or a crisis line now.',
     'jokeFallback': 'The jokes only work in English so far. The button does '
         'not.',
+
+    // -- Voice and commands (2026-11) --------------------------------------
+    'voiceListening': 'Listening…',
+    'voiceTranscribing': 'One moment…',
+    'voicePreparing': 'Loading voice…',
+    'voiceTapToTalk': 'Tap the mic and speak',
+    'voicePermissionDenied': 'Puck needs the microphone for that.',
+    'voicePermissionDeniedNote': 'Turn it on in Settings, Apps, Puck, Permissions. Typing still works.',
+    'voiceNoModels': 'No voice model yet.',
+    'voiceDownloadPrompt': 'Speech recognition runs on the phone, so it needs one small model first: about %1 MB, once, and then no network ever again.',
+    'voiceDownloading': 'Downloading voice model',
+    'voiceDownloadFailed': 'The download stopped. Check the connection and try again.',
+    'voiceModelBroken': 'That voice model would not load. Delete it and download it again.',
+    'voiceHeardNothing': 'I did not catch that.',
+    'voiceBusy': 'Still finishing the last one.',
+    'voiceListeningHint': 'Speak now. Tap stop when you are done.',
+    'voiceError': 'Voice stopped unexpectedly.',
+    'voiceSectionTitle': 'Voice',
+    'voiceModelsTitle': 'Voice models',
+    'voiceModelsNote': 'Downloaded once, then used offline. Your voice never leaves the phone.',
+    'voiceModelInstalled': 'Installed',
+    'voiceModelDownload': 'Download',
+    'voiceModelDelete': 'Delete',
+    'voiceModelBytes': '%1 MB',
+    'voiceModelLicense': 'License',
+    'voiceModelRequired': 'Required',
+    'voiceModelOptional': 'Optional',
+    'voiceModelSizeNote': 'Download size. Wi-Fi is not required, but it is not small.',
+    'assistantNameTitle': 'Assistant name',
+    'assistantNameHint': 'Puck',
+    'assistantNameNote': 'The name Puck answers to, and the name you can say before a command: "%1, torch on". It does not change the wake word below.',
+    'spokenRepliesTitle': 'Speak answers',
+    'spokenRepliesNote': 'Reads answers out loud, offline, with the phone speech engine or the Puck voice if you installed it.',
+    'wakeWordTitle': 'Wake word',
+    'wakeWordNote': 'Not yet. Always listening needs a keyword model and a foreground service, and it costs battery all day. Tap the mic for now.',
+    'cmdVolumeLevel': 'Volume %1 percent.',
+    'cmdVolumeUp': 'Louder.',
+    'cmdVolumeDown': 'Quieter.',
+    'cmdMuted': 'Muted.',
+    'cmdUnmuted': 'Sound back on.',
+    'cmdVolumeUnavailable': 'This phone would not let me change the volume.',
+    'cmdTorchOn': 'Torch on.',
+    'cmdTorchOff': 'Torch off.',
+    'cmdTorchUnavailable': 'No torch here, or another app is using the camera.',
+    'cmdOpening': 'Opening %1.',
+    'cmdAppNotFound': 'No app called "%1" on this phone.',
+    'cmdAppFailed': '%1 would not open.',
+    'cmdBattery': 'Battery %1 percent, %2.',
+    'cmdBatteryCharging': 'charging',
+    'cmdBatteryNotCharging': 'not charging',
+    'cmdBatteryUnavailable': 'I could not read the battery.',
+    'cmdTime': 'It is %1.',
+    'cmdDate': 'Today is %1.',
+    'cmdAnswerCard': '%1 = %2',
+    'cmdAnswerSpoken': 'That is %1.',
+    'cmdConvertCard': '%1 %2 = %3 %4',
+    'cmdConvertSpoken': '%1 %2 is %3 %4.',
+    'cmdConvertImpossible': 'I cannot convert %1 to %2.',
+    'cmdTimerCard': 'Timer: %1',
+    'cmdTimerSpoken': 'Timer set for %1.',
+    'cmdTimerUnavailable': 'No clock app to set a timer.',
+    'cmdAlarmCard': 'Alarm %1',
+    'cmdAlarmSpoken': 'Alarm set for %1.',
+    'cmdAlarmUnavailable': 'No clock app to set an alarm.',
+    'cmdHelp': 'I can do volume, mute, torch, open an app, battery, the time and the date, timers and alarms, unit conversions and arithmetic. All of it offline.',
+    'cmdRefusedCall': 'I will not place calls for you. Phone is yours to open.',
+    'cmdRefusedMessage': 'I will not send messages for you. Open Messages and the send is your tap.',
+    'cmdRefusedDelete': 'I will not delete anything for you, ever.',
+    'cmdRefusedShare': 'I will not share your location for you.',
+    'cmdFailed': 'That did not work.',
+    'durHours': '%1 hours',
+    'durHourOne': '1 hour',
+    'durMinutes': '%1 minutes',
+    'durMinuteOne': '1 minute',
+    'durSeconds': '%1 seconds',
+    'durSecondOne': '1 second',
   };
 
   /// Per-language overrides. A key absent here falls back to English, which is

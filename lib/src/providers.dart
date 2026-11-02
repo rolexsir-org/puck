@@ -1,4 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:puck/src/commands/command_executor.dart';
+import 'package:puck/src/commands/command_parser.dart';
+import 'package:puck/src/commands/command_router.dart';
 import 'package:puck/src/core/haptics.dart';
 import 'package:puck/src/data/llm/gated_provider.dart';
 import 'package:puck/src/data/llm/groq_provider.dart';
@@ -10,12 +13,18 @@ import 'package:puck/src/data/repositories/joke_repository.dart';
 import 'package:puck/src/data/repositories/settings_repository.dart';
 import 'package:puck/src/data/services/battery_service.dart';
 import 'package:puck/src/data/services/calendar_service.dart';
+import 'package:puck/src/data/services/device_actions.dart';
 import 'package:puck/src/data/services/location_service.dart';
 import 'package:puck/src/data/services/messaging_service.dart';
+import 'package:puck/src/data/services/platform_bridge.dart';
 import 'package:puck/src/data/services/speech_service.dart';
 import 'package:puck/src/data/services/torch_service.dart';
 import 'package:puck/src/data/services/weather_service.dart';
 import 'package:puck/src/domain/intent_router.dart';
+import 'package:puck/src/voice/model_store.dart';
+import 'package:puck/src/voice/speech_output.dart';
+import 'package:puck/src/voice/transcriber.dart';
+import 'package:puck/src/voice/voice_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Injected by main(), which awaits the one async SharedPreferences read at
@@ -150,4 +159,93 @@ final Provider<IntentRouter> intentRouterProvider = Provider<IntentRouter>(
     llm: ref.watch(gatedLlmProvider),
     local: ref.watch(localResolverProvider),
   ),
+);
+
+// -- Voice (2026-11) ---------------------------------------------------------
+
+/// Android's native bridge: media volume, the launcher, the clock app, audio
+/// out. One instance, because it wraps one MethodChannel.
+final Provider<PlatformBridge> platformBridgeProvider =
+    Provider<PlatformBridge>((Ref ref) => PlatformBridge());
+
+/// Where the downloaded voice models live.
+///
+/// Injected by `main()` after one async `getApplicationSupportDirectory()`, for
+/// the same reason as [sharedPreferencesProvider]: the settings screen and the
+/// transcriber both want it synchronously, and a provider that can only be read
+/// asynchronously would put a `FutureBuilder` in front of a download button.
+final Provider<VoiceModelStore> voiceModelStoreProvider =
+    Provider<VoiceModelStore>(
+  (Ref ref) => throw StateError(
+    'voiceModelStoreProvider must be overridden in main() with an awaited '
+    'VoiceModelStore. See the note on sharedPreferencesProvider.',
+  ),
+);
+
+/// The five platform ports the command executor drives.
+final Provider<CommandExecutor> commandExecutorProvider =
+    Provider<CommandExecutor>((Ref ref) {
+  final PlatformBridge bridge = ref.watch(platformBridgeProvider);
+  return CommandExecutor(
+    volume: BridgedVolumePort(bridge),
+    apps: BridgedAppLauncher(bridge),
+    clock: BridgedClock(bridge),
+    torch: PluginTorch(torch: ref.watch(torchServiceProvider)),
+    battery: ServiceBattery(battery: ref.watch(batteryServiceProvider)),
+  );
+});
+
+/// Parse -> execute -> report, with the duplicate guard.
+///
+/// The assistant's own name is read from settings at construction; renaming
+/// Puck rebuilds this provider, which is exactly the intent ("hey Jarvis" starts
+/// working when the name is Jarvis -- as a *phrase* prefix, not as an acoustic
+/// wake word; see docs/voice.md §5).
+final Provider<CommandRouter> commandRouterProvider =
+    Provider<CommandRouter>((Ref ref) {
+  final SettingsRepository settings = ref.watch(settingsProvider);
+  return CommandRouter(
+    parser: CommandParser(assistantName: settings.assistantName),
+    executor: ref.watch(commandExecutorProvider),
+  );
+});
+
+/// Offline-first speech input, falling back to the platform recogniser when the
+/// models are not installed.
+final Provider<Transcriber> transcriberProvider = Provider<Transcriber>((Ref ref) {
+  final VoiceModelStore store = ref.watch(voiceModelStoreProvider);
+  final PreferredTranscriber transcriber = PreferredTranscriber(
+    offline: SherpaTranscriber(store: store),
+    platform: PlatformTranscriber(
+      speech: ref.watch(speechServiceProvider),
+    ),
+  );
+  ref.onDispose(transcriber.dispose);
+  return transcriber;
+});
+
+/// One microphone session at a time, for the whole app.
+final ChangeNotifierProvider<VoiceSessionController> voiceSessionProvider =
+    ChangeNotifierProvider<VoiceSessionController>(
+  (Ref ref) => VoiceSessionController(
+    transcriber: ref.watch(transcriberProvider),
+  ),
+);
+
+/// Spoken answers: the Puck voice when installed, the phone's engine otherwise.
+final Provider<SpeechOutput> speechOutputProvider = Provider<SpeechOutput>(
+  (Ref ref) {
+    final SpeechRouter router = SpeechRouter(
+      system: SystemSpeechOutput(bridge: ref.watch(platformBridgeProvider)),
+      sherpa: SherpaSpeechOutput(
+        // Read, not watched, and inside a closure: the optional voice resolves
+        // the model directory only when it is asked to speak, so an app without
+        // one still talks through the phone's engine.
+        store: () => ref.read(voiceModelStoreProvider),
+        bridge: ref.watch(platformBridgeProvider),
+      ),
+    );
+    ref.onDispose(router.dispose);
+    return router;
+  },
 );

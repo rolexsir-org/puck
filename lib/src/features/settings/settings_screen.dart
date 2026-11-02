@@ -25,8 +25,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _contact;
   late final TextEditingController _key;
+  late final TextEditingController _name;
   final FocusNode _contactFocus = FocusNode();
   final FocusNode _keyFocus = FocusNode();
+  final FocusNode _nameFocus = FocusNode();
 
   String _version = '…';
   bool _confirmingErase = false;
@@ -38,18 +40,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final SettingsRepository settings = ref.read(settingsProvider);
     _contact = TextEditingController(text: settings.contactPhone);
     _key = TextEditingController(text: settings.groqApiKey ?? '');
+    _name = TextEditingController(text: settings.assistantName);
 
     // Saved on leave, not on a button. A settings screen that makes you press
     // "save" is a form; this is a place you visit once. It is also why the
     // key is not written to the Keystore on every keystroke.
     _contactFocus.addListener(_saveContactOnBlur);
     _keyFocus.addListener(_saveKeyOnBlur);
+    _nameFocus.addListener(_saveNameOnBlur);
     unawaited(_loadVersion());
   }
 
   void _saveContactOnBlur() {
     if (_contactFocus.hasFocus) return;
     unawaited(ref.read(settingsProvider).setContactPhone(_contact.text));
+  }
+
+  void _saveNameOnBlur() {
+    if (_nameFocus.hasFocus) return;
+    unawaited(ref.read(settingsProvider).setAssistantName(_name.text));
   }
 
   void _saveKeyOnBlur() {
@@ -74,10 +83,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _contactFocus.removeListener(_saveContactOnBlur);
     _keyFocus.removeListener(_saveKeyOnBlur);
+    _nameFocus.removeListener(_saveNameOnBlur);
     _contact.dispose();
     _key.dispose();
+    _name.dispose();
     _contactFocus.dispose();
     _keyFocus.dispose();
+    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -192,6 +204,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(s.holdNote, style: PuckType.label),
+
+                  const _SectionDivider(),
+
+                  // -- Voice -------------------------------------------------
+                  //
+                  // Order inside this section is the order the questions come
+                  // in: what is it called, does it talk back, what does it
+                  // need downloaded, and then the honest answer about waking
+                  // it by voice.
+                  _Heading(text: s.voiceSectionTitle),
+                  const SizedBox(height: 12),
+                  Text(s.assistantNameTitle, style: PuckType.primary),
+                  const SizedBox(height: 10),
+                  _Input(
+                    controller: _name,
+                    focusNode: _nameFocus,
+                    label: s.assistantNameTitle,
+                    hint: s.assistantNameHint,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    s.assistantNameNote(settings.assistantName),
+                    style: PuckType.label,
+                  ),
+
+                  const SizedBox(height: 24),
+                  _SwitchRow(
+                    title: s.spokenRepliesTitle,
+                    subtitle: s.spokenRepliesNote,
+                    value: settings.spokenReplies,
+                    onChanged: (bool v) =>
+                        unawaited(settings.setSpokenReplies(v)),
+                  ),
+
+                  const SizedBox(height: 12),
+                  _RowButton(
+                    label: s.voiceModelsTitle,
+                    subtitle: s.voiceModelsNote,
+                    onTap: () => Navigator.of(context).pushNamed('/voice'),
+                  ),
+
+                  const SizedBox(height: 16),
+                  // No switch here, on purpose: a toggle that does nothing is a
+                  // promise the app cannot keep. This says why, in the same
+                  // place the switch would be.
+                  Text(s.wakeWordTitle, style: PuckType.primary),
+                  const SizedBox(height: 6),
+                  Text(s.wakeWordNote, style: PuckType.label),
 
                   const _SectionDivider(),
 

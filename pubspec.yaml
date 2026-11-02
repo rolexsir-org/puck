@@ -68,6 +68,29 @@ dependencies:
   url_launcher: ^6.3.1
   package_info_plus: ^8.0.0
 
+  # -- Voice engine (2026-11) ------------------------------------------------
+  # The offline voice pipeline. See docs/voice.md for why each one is here and
+  # what it costs in APK size.
+  #
+  #   sherpa_onnx   native (ffiPlugin)  VAD + offline ASR + TTS. Ships one
+  #                                     prebuilt libsherpa-onnx-c-api.so per
+  #                                     ABI (~8-20 MB each; the app already
+  #                                     splits per ABI); models are downloaded
+  #                                     on demand, never bundled.
+  #   record        plugin              raw 16 kHz mono PCM16 from the mic.
+  #                                     speech_to_text cannot do this: the
+  #                                     platform recogniser hands back text,
+  #                                     not audio, so it cannot feed a local
+  #                                     VAD/ASR pair at all.
+  #   archive       pure Dart           .tar.bz2 -> files. The sherpa model
+  #                                     releases are bzip2-compressed tarballs
+  #                                     and the platform cannot unpack bzip2.
+  #   path_provider plugin (tiny)       the app-support directory models live in
+  sherpa_onnx: 2.0.1
+  record: ^6.2.0
+  archive: ^3.6.1
+  path_provider: ^2.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
